@@ -1,0 +1,2524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCI: Structural Causal Invariance - Nature Machine Intelligence Figures</title>
+    <style>
+        /* ============================================
+           NATURE MACHINE INTELLIGENCE STYLE GUIDE
+           ============================================ */
+        
+        @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;600;700&family=Source+Serif+Pro:wght@400;600&display=swap');
+        
+        :root {
+            /* Primary Colors */
+            --structure-purple: #7B2D8E;
+            --structure-light: #E8D4ED;
+            --content-teal: #00838F;
+            --content-light: #D4EDEC;
+            --binding-orange: #E65100;
+            --binding-light: #FFE0CC;
+            
+            /* Semantic Colors */
+            --positive-green: #2E7D32;
+            --negative-red: #C62828;
+            --neutral-gray: #546E7A;
+            
+            /* Background Colors */
+            --phase1-bg: #F3E5F5;
+            --phase2-bg: #E8F5E9;
+            --warning-bg: #FFEBEE;
+            --success-bg: #E8F5E9;
+            
+            /* Text Colors */
+            --text-primary: #212121;
+            --text-secondary: #616161;
+            --text-light: #9E9E9E;
+            
+            /* Nature Colors */
+            --nature-blue: #004D7A;
+            --nature-accent: #0277BD;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #FAFAFA;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .page-title {
+            font-family: 'Source Serif Pro', Georgia, serif;
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--nature-blue);
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        .page-subtitle {
+            font-size: 16px;
+            color: var(--text-secondary);
+            text-align: center;
+            margin-bottom: 50px;
+        }
+        
+        /* Figure Container */
+        .figure-container {
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+            margin-bottom: 60px;
+            overflow: hidden;
+        }
+        
+        .figure-header {
+            background: linear-gradient(135deg, var(--nature-blue), var(--nature-accent));
+            color: white;
+            padding: 16px 24px;
+        }
+        
+        .figure-number {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            opacity: 0.9;
+        }
+        
+        .figure-title {
+            font-family: 'Source Serif Pro', Georgia, serif;
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        
+        .figure-content {
+            padding: 30px;
+        }
+        
+        .figure-caption {
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 16px 24px;
+            background: #F5F5F5;
+            border-top: 1px solid #E0E0E0;
+            line-height: 1.7;
+        }
+        
+        .figure-caption strong {
+            color: var(--text-primary);
+        }
+
+        /* ============================================
+           FIGURE 1: BASELINE VS SCI COMPARISON
+           ============================================ */
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+        
+        .architecture-panel {
+            position: relative;
+        }
+        
+        .panel-label {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .panel-label .label-letter {
+            background: var(--nature-blue);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        
+        .arch-diagram {
+            position: relative;
+            min-height: 500px;
+        }
+        
+        /* Baseline Architecture */
+        .baseline-box {
+            background: #F5F5F5;
+            border: 2px solid #BDBDBD;
+            border-radius: 8px;
+            padding: 16px 24px;
+            text-align: center;
+            margin-bottom: 12px;
+            position: relative;
+        }
+        
+        .baseline-box.input {
+            background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+            border-color: #64B5F6;
+        }
+        
+        .baseline-box.output {
+            background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+            border-color: #FFB74D;
+        }
+        
+        .baseline-box .box-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .baseline-box .box-sublabel {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        
+        .flow-arrow {
+            text-align: center;
+            color: #9E9E9E;
+            font-size: 20px;
+            margin: 4px 0;
+        }
+        
+        .warning-banner {
+            background: var(--warning-bg);
+            border: 1px solid var(--negative-red);
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .warning-banner .icon {
+            color: var(--negative-red);
+            font-size: 18px;
+        }
+        
+        .warning-banner .text {
+            font-size: 12px;
+            color: var(--negative-red);
+            font-weight: 500;
+        }
+        
+        .success-banner {
+            background: var(--success-bg);
+            border: 1px solid var(--positive-green);
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .success-banner .icon {
+            color: var(--positive-green);
+            font-size: 18px;
+        }
+        
+        .success-banner .text {
+            font-size: 12px;
+            color: var(--positive-green);
+            font-weight: 500;
+        }
+
+        /* SCI Architecture */
+        .phase-box {
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            position: relative;
+        }
+        
+        .phase-box.phase1 {
+            background: var(--phase1-bg);
+            border: 2px dashed var(--structure-purple);
+        }
+        
+        .phase-box.phase2 {
+            background: var(--phase2-bg);
+            border: 2px dashed var(--positive-green);
+        }
+        
+        .phase-label {
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: white;
+            padding: 2px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            border-radius: 4px;
+        }
+        
+        .phase-box.phase1 .phase-label {
+            color: var(--structure-purple);
+            border: 1px solid var(--structure-purple);
+        }
+        
+        .phase-box.phase2 .phase-label {
+            color: var(--positive-green);
+            border: 1px solid var(--positive-green);
+        }
+        
+        .encoder-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 16px 0;
+        }
+        
+        .encoder-box {
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+        
+        .encoder-box.structural {
+            background: linear-gradient(135deg, var(--structure-light), #F3E5F5);
+            border: 2px solid var(--structure-purple);
+        }
+        
+        .encoder-box.content {
+            background: linear-gradient(135deg, var(--content-light), #E0F7FA);
+            border: 2px solid var(--content-teal);
+        }
+        
+        .encoder-box .encoder-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .encoder-box.structural .encoder-title {
+            color: var(--structure-purple);
+        }
+        
+        .encoder-box.content .encoder-title {
+            color: var(--content-teal);
+        }
+        
+        .encoder-box .encoder-subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .encoder-box .key-component {
+            font-size: 10px;
+            font-style: italic;
+            margin-top: 6px;
+            padding: 4px 8px;
+            background: rgba(255,255,255,0.7);
+            border-radius: 4px;
+            display: inline-block;
+        }
+        
+        .cbm-box {
+            background: linear-gradient(135deg, var(--binding-light), #FFF3E0);
+            border: 2px solid var(--binding-orange);
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+            margin-top: 16px;
+        }
+        
+        .cbm-box .cbm-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--binding-orange);
+        }
+        
+        .cbm-box .cbm-subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .transformer-box {
+            background: #ECEFF1;
+            border: 2px solid #78909C;
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+        }
+        
+        .transformer-box .title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .transformer-box .subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .input-box-sci {
+            background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+            border: 2px solid #64B5F6;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        
+        .input-box-sci .title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1976D2;
+        }
+        
+        .lock-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #FFC107;
+            color: #000;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        /* ============================================
+           FIGURE 2: SCI DETAILED ARCHITECTURE
+           ============================================ */
+        
+        .detailed-arch {
+            position: relative;
+            padding: 20px;
+        }
+        
+        .arch-input {
+            background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
+            border: 2px solid #66BB6A;
+            border-radius: 8px;
+            padding: 16px 24px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .arch-input .input-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #2E7D32;
+            margin-bottom: 8px;
+        }
+        
+        .arch-input .input-tokens {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .token {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .token.instruction {
+            background: #C8E6C9;
+            color: #1B5E20;
+            border: 1px solid #81C784;
+        }
+        
+        .token.response {
+            background: #FFCDD2;
+            color: #B71C1C;
+            border: 1px solid #E57373;
+            text-decoration: line-through;
+            opacity: 0.6;
+        }
+        
+        .flow-connector {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 40px;
+            position: relative;
+        }
+        
+        .flow-connector::before {
+            content: '';
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background: #BDBDBD;
+        }
+        
+        .flow-connector .arrow-down {
+            background: white;
+            padding: 4px;
+            z-index: 1;
+            color: #757575;
+        }
+        
+        .dual-encoder-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin: 20px 0;
+        }
+        
+        .encoder-detailed {
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .encoder-detailed.structural {
+            background: linear-gradient(180deg, var(--structure-light) 0%, #FCF4FF 100%);
+            border: 2px solid var(--structure-purple);
+        }
+        
+        .encoder-detailed.content {
+            background: linear-gradient(180deg, var(--content-light) 0%, #F0FFFE 100%);
+            border: 2px solid var(--content-teal);
+        }
+        
+        .encoder-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        .encoder-header .name {
+            font-size: 15px;
+            font-weight: 700;
+        }
+        
+        .encoder-detailed.structural .encoder-header .name {
+            color: var(--structure-purple);
+        }
+        
+        .encoder-detailed.content .encoder-header .name {
+            color: var(--content-teal);
+        }
+        
+        .encoder-header .abbrev {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        
+        .encoder-detailed.structural .encoder-header .abbrev {
+            background: var(--structure-purple);
+            color: white;
+        }
+        
+        .encoder-detailed.content .encoder-header .abbrev {
+            background: var(--content-teal);
+            color: white;
+        }
+        
+        .component-list {
+            list-style: none;
+        }
+        
+        .component-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px dashed rgba(0,0,0,0.1);
+            font-size: 12px;
+        }
+        
+        .component-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .component-list .num {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        
+        .encoder-detailed.structural .component-list .num {
+            background: var(--structure-purple);
+            color: white;
+        }
+        
+        .encoder-detailed.content .component-list .num {
+            background: var(--content-teal);
+            color: white;
+        }
+        
+        .component-list .comp-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .component-list .comp-desc {
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+        
+        .key-innovation {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 11px;
+        }
+        
+        .encoder-detailed.structural .key-innovation {
+            background: rgba(123, 45, 142, 0.1);
+            border: 1px solid var(--structure-purple);
+        }
+        
+        .encoder-detailed.content .key-innovation {
+            background: rgba(0, 131, 143, 0.1);
+            border: 1px solid var(--content-teal);
+        }
+        
+        .key-innovation .ki-label {
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .encoder-detailed.structural .key-innovation .ki-label {
+            color: var(--structure-purple);
+        }
+        
+        .encoder-detailed.content .key-innovation .ki-label {
+            color: var(--content-teal);
+        }
+        
+        .encoder-output {
+            margin-top: 16px;
+            padding: 10px;
+            background: rgba(255,255,255,0.7);
+            border-radius: 6px;
+            text-align: center;
+        }
+        
+        .encoder-output .label {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .encoder-output .output-val {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        
+        .encoder-detailed.structural .encoder-output .output-val {
+            color: var(--structure-purple);
+        }
+        
+        .encoder-detailed.content .encoder-output .output-val {
+            color: var(--content-teal);
+        }
+        
+        .binding-section {
+            background: linear-gradient(180deg, var(--binding-light) 0%, #FFF8F0 100%);
+            border: 2px solid var(--binding-orange);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .binding-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        
+        .binding-header .name {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--binding-orange);
+        }
+        
+        .binding-header .abbrev {
+            background: var(--binding-orange);
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        
+        .binding-steps {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        
+        .binding-step {
+            text-align: center;
+            padding: 12px;
+            background: rgba(255,255,255,0.7);
+            border-radius: 8px;
+        }
+        
+        .binding-step .step-num {
+            width: 24px;
+            height: 24px;
+            background: var(--binding-orange);
+            color: white;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        
+        .binding-step .step-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .binding-step .step-desc {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* ============================================
+           FIGURE 3: ABSTRACTION LAYER HEATMAP
+           ============================================ */
+        
+        .heatmap-container {
+            padding: 20px;
+        }
+        
+        .heatmap-title {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        
+        .heatmap-title h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--structure-purple);
+            margin-bottom: 4px;
+        }
+        
+        .heatmap-title p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .heatmap-wrapper {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            justify-content: center;
+        }
+        
+        .heatmap-grid {
+            display: grid;
+            gap: 3px;
+        }
+        
+        .heatmap-row {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+        }
+        
+        .heatmap-row-label {
+            width: 60px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-align: right;
+            padding-right: 8px;
+        }
+        
+        .heatmap-cell {
+            width: 70px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 4px;
+            transition: transform 0.2s;
+        }
+        
+        .heatmap-cell:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        
+        .heatmap-cell.low {
+            background: #F3E5F5;
+            color: #7B2D8E;
+        }
+        
+        .heatmap-cell.medium {
+            background: #CE93D8;
+            color: white;
+        }
+        
+        .heatmap-cell.high {
+            background: #7B2D8E;
+            color: white;
+        }
+        
+        .heatmap-col-labels {
+            display: flex;
+            gap: 3px;
+            margin-left: 68px;
+            margin-bottom: 8px;
+        }
+        
+        .heatmap-col-label {
+            width: 70px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .heatmap-col-label.content-word {
+            color: var(--negative-red);
+        }
+        
+        .heatmap-col-label.structure-word {
+            color: var(--positive-green);
+        }
+        
+        .heatmap-type-labels {
+            display: flex;
+            gap: 3px;
+            margin-left: 68px;
+            margin-top: 8px;
+        }
+        
+        .heatmap-type-label {
+            width: 70px;
+            text-align: center;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 4px;
+            border-radius: 3px;
+        }
+        
+        .heatmap-type-label.content {
+            background: #FFEBEE;
+            color: var(--negative-red);
+        }
+        
+        .heatmap-type-label.structure {
+            background: #E8F5E9;
+            color: var(--positive-green);
+        }
+        
+        .colorbar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .colorbar-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+        }
+        
+        .colorbar-gradient {
+            width: 20px;
+            height: 150px;
+            background: linear-gradient(to bottom, #7B2D8E, #CE93D8, #F3E5F5);
+            border-radius: 4px;
+            border: 1px solid #E0E0E0;
+        }
+        
+        .colorbar-ticks {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 150px;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        
+        .heatmap-insight {
+            margin-top: 24px;
+            padding: 16px;
+            background: #F5F5F5;
+            border-radius: 8px;
+            border-left: 4px solid var(--structure-purple);
+        }
+        
+        .heatmap-insight .insight-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--structure-purple);
+            margin-bottom: 8px;
+        }
+        
+        .heatmap-insight p {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin: 4px 0;
+        }
+        
+        .heatmap-insight strong {
+            color: var(--text-primary);
+        }
+
+        /* ============================================
+           FIGURE 4: DATA LEAKAGE PREVENTION
+           ============================================ */
+        
+        .leakage-container {
+            padding: 20px;
+        }
+        
+        .leakage-title {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        
+        .leakage-title h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--nature-blue);
+            margin-bottom: 4px;
+        }
+        
+        .attention-heatmap {
+            position: relative;
+        }
+        
+        .token-type-header {
+            display: flex;
+            margin-left: 68px;
+            margin-bottom: 12px;
+        }
+        
+        .token-type-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 0;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-radius: 4px;
+        }
+        
+        .token-type-section.instruction {
+            flex: 5;
+            background: #E8F5E9;
+            color: var(--positive-green);
+            border: 2px solid var(--positive-green);
+            margin-right: 3px;
+        }
+        
+        .token-type-section.response {
+            flex: 4;
+            background: #FFEBEE;
+            color: var(--negative-red);
+            border: 2px solid var(--negative-red);
+        }
+        
+        .attention-grid {
+            position: relative;
+        }
+        
+        .boundary-line {
+            position: absolute;
+            left: calc(68px + 5 * 70px + 5 * 3px - 1px);
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--negative-red);
+            z-index: 10;
+        }
+        
+        .boundary-label {
+            position: absolute;
+            left: calc(68px + 5 * 70px + 5 * 3px - 30px);
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+            background: #FFC107;
+            color: #000;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 3px;
+            white-space: nowrap;
+            z-index: 11;
+        }
+        
+        .attention-cell {
+            width: 70px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 4px;
+        }
+        
+        .attention-cell.active {
+            background: linear-gradient(135deg, #7B2D8E, #9C27B0);
+            color: white;
+        }
+        
+        .attention-cell.medium {
+            background: #CE93D8;
+            color: white;
+        }
+        
+        .attention-cell.low {
+            background: #F3E5F5;
+            color: #7B2D8E;
+        }
+        
+        .attention-cell.zero {
+            background: repeating-linear-gradient(
+                45deg,
+                #FFEBEE,
+                #FFEBEE 5px,
+                #FFCDD2 5px,
+                #FFCDD2 10px
+            );
+            color: var(--negative-red);
+            font-weight: 700;
+        }
+        
+        .causal-correctness {
+            margin-top: 24px;
+            padding: 16px 20px;
+            background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
+            border: 2px solid var(--positive-green);
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .causal-correctness .check {
+            font-size: 24px;
+            color: var(--positive-green);
+            margin-bottom: 8px;
+        }
+        
+        .causal-correctness h4 {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--positive-green);
+            margin-bottom: 8px;
+        }
+        
+        .causal-correctness p {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin: 4px 0;
+        }
+
+        /* ============================================
+           FIGURE 5: SCL TRAINING
+           ============================================ */
+        
+        .scl-container {
+            padding: 20px;
+        }
+        
+        .scl-space {
+            background: #FAFAFA;
+            border: 2px solid #E0E0E0;
+            border-radius: 12px;
+            padding: 30px;
+            position: relative;
+            min-height: 350px;
+        }
+        
+        .scl-title {
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .positive-cluster {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .cluster-label {
+            text-align: center;
+            margin-bottom: 12px;
+            padding: 8px 16px;
+            background: #E8F5E9;
+            border: 1px solid var(--positive-green);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--positive-green);
+        }
+        
+        .cluster-points {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            position: relative;
+        }
+        
+        .point {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .point-circle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .point-circle.structure {
+            background: linear-gradient(135deg, var(--structure-purple), #9C27B0);
+        }
+        
+        .point-label {
+            font-size: 11px;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: var(--text-primary);
+            background: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .pull-arrows {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .pull-label {
+            background: var(--positive-green);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        
+        .negative-point {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .point-circle.content {
+            background: linear-gradient(135deg, var(--content-teal), #00ACC1);
+        }
+        
+        .negative-label {
+            text-align: center;
+            padding: 8px 16px;
+            background: #FFEBEE;
+            border: 1px solid var(--negative-red);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--negative-red);
+        }
+        
+        .push-arrow {
+            position: absolute;
+            top: 55%;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .push-arrow .arrow {
+            font-size: 24px;
+            color: var(--negative-red);
+        }
+        
+        .push-label {
+            background: var(--negative-red);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        
+        .scl-formula {
+            margin-top: 24px;
+            padding: 20px;
+            background: #263238;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .scl-formula .formula-label {
+            font-size: 11px;
+            color: #90A4AE;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .scl-formula .formula {
+            font-family: 'Times New Roman', serif;
+            font-size: 18px;
+            color: white;
+            letter-spacing: 1px;
+        }
+        
+        .scl-formula .formula sub {
+            font-size: 12px;
+        }
+
+        /* ============================================
+           FIGURE 6: RESULTS
+           ============================================ */
+        
+        .results-container {
+            padding: 20px;
+        }
+        
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+        
+        .result-panel {
+            background: #FAFAFA;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .result-panel h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #E0E0E0;
+        }
+        
+        .result-panel h4 .panel-letter {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            background: var(--nature-blue);
+            color: white;
+            border-radius: 50%;
+            font-size: 11px;
+            margin-right: 8px;
+        }
+        
+        .bar-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .bar-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        
+        .bar-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        
+        .bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .bar-model {
+            width: 60px;
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .bar-track {
+            flex: 1;
+            height: 24px;
+            background: #EEEEEE;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: white;
+            transition: width 1s ease-out;
+        }
+        
+        .bar-fill.baseline {
+            background: linear-gradient(90deg, #78909C, #607D8B);
+        }
+        
+        .bar-fill.sci {
+            background: linear-gradient(90deg, #0288D1, #0277BD);
+        }
+        
+        .improvement-badge {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--positive-green);
+            margin-left: 8px;
+        }
+        
+        .ablation-panel {
+            grid-column: 1 / -1;
+        }
+        
+        .ablation-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .ablation-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .ablation-label {
+            width: 100px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-align: right;
+        }
+        
+        .ablation-track {
+            flex: 1;
+            height: 28px;
+            background: #EEEEEE;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .ablation-fill {
+            height: 100%;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            padding-left: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: white;
+        }
+        
+        .ablation-fill.baseline {
+            background: #78909C;
+        }
+        
+        .ablation-fill.partial {
+            background: #90CAF9;
+        }
+        
+        .ablation-fill.full {
+            background: linear-gradient(90deg, #0288D1, #01579B);
+        }
+        
+        .key-finding {
+            margin-top: 20px;
+            padding: 16px;
+            background: #E3F2FD;
+            border-radius: 8px;
+            border-left: 4px solid var(--nature-accent);
+        }
+        
+        .key-finding h5 {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--nature-blue);
+            margin-bottom: 8px;
+        }
+        
+        .key-finding ul {
+            margin: 0;
+            padding-left: 16px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .key-finding li {
+            margin: 4px 0;
+        }
+
+        /* ============================================
+           FIGURE 7: STRUCTURAL INVARIANCE MATRIX
+           ============================================ */
+        
+        .invariance-container {
+            padding: 20px;
+        }
+        
+        .matrix-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            align-items: flex-start;
+        }
+        
+        .similarity-matrix {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        
+        .matrix-header {
+            display: flex;
+            gap: 3px;
+            margin-left: 90px;
+            margin-bottom: 6px;
+        }
+        
+        .matrix-col-label {
+            width: 80px;
+            text-align: center;
+            font-size: 10px;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: var(--text-secondary);
+            line-height: 1.2;
+        }
+        
+        .matrix-row {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+        }
+        
+        .matrix-row-label {
+            width: 90px;
+            text-align: right;
+            padding-right: 8px;
+            font-size: 10px;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: var(--text-secondary);
+            line-height: 1.2;
+        }
+        
+        .matrix-cell {
+            width: 80px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            border-radius: 4px;
+            transition: transform 0.2s;
+        }
+        
+        .matrix-cell:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 1;
+        }
+        
+        .matrix-cell.very-high {
+            background: #1B5E20;
+            color: white;
+        }
+        
+        .matrix-cell.high {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .matrix-cell.medium {
+            background: #FFEB3B;
+            color: #333;
+        }
+        
+        .matrix-cell.low {
+            background: #FF9800;
+            color: white;
+        }
+        
+        .matrix-cell.very-low {
+            background: #F44336;
+            color: white;
+        }
+        
+        .same-structure-box {
+            position: absolute;
+            top: 76px;
+            left: 90px;
+            width: calc(3 * 80px + 2 * 3px + 4px);
+            height: calc(3 * 50px + 2 * 3px + 4px);
+            border: 3px dashed var(--positive-green);
+            border-radius: 8px;
+            pointer-events: none;
+        }
+        
+        .matrix-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-top: 20px;
+        }
+        
+        .legend-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .legend-color {
+            width: 24px;
+            height: 18px;
+            border-radius: 3px;
+        }
+        
+        .legend-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        
+        .invariance-insight {
+            margin-top: 24px;
+            text-align: center;
+        }
+        
+        .insight-box {
+            display: inline-block;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
+            border: 2px solid var(--positive-green);
+            border-radius: 8px;
+        }
+        
+        .insight-box .check-icon {
+            font-size: 20px;
+            color: var(--positive-green);
+            margin-bottom: 8px;
+        }
+        
+        .insight-box h4 {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--positive-green);
+            margin-bottom: 4px;
+        }
+        
+        .insight-box p {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* ============================================
+           RESPONSIVE
+           ============================================ */
+        
+        @media (max-width: 900px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .dual-encoder-section {
+                grid-template-columns: 1fr;
+            }
+            
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .binding-steps {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Print styles */
+        @media print {
+            .figure-container {
+                break-inside: avoid;
+                box-shadow: none;
+                border: 1px solid #E0E0E0;
+            }
+            
+            .figure-header {
+                background: var(--nature-blue) !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="page-title">Structural Causal Invariance (SCI)</h1>
+        <p class="page-subtitle">Publication Figures for Nature Machine Intelligence</p>
+
+        <!-- ============================================
+             FIGURE 1: BASELINE VS SCI COMPARISON
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 1</div>
+                <div class="figure-title">Baseline Transformer vs SCI Architecture</div>
+            </div>
+            <div class="figure-content">
+                <div class="comparison-grid">
+                    <!-- Baseline Panel -->
+                    <div class="architecture-panel">
+                        <div class="panel-label">
+                            <span class="label-letter">A</span>
+                            <span>Baseline Transformer</span>
+                        </div>
+                        <div class="arch-diagram">
+                            <div class="baseline-box input">
+                                <div class="box-label">Input Tokens</div>
+                                <div class="box-sublabel">(instruction + response mixed)</div>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="baseline-box">
+                                <div class="box-label">Layer 1</div>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="baseline-box">
+                                <div class="box-label">Layer 2</div>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="baseline-box">
+                                <div class="box-label">⋮</div>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="baseline-box">
+                                <div class="box-label">Layer N</div>
+                            </div>
+                            <div class="flow-arrow">↓</div>
+                            <div class="baseline-box output">
+                                <div class="box-label">Output Logits</div>
+                            </div>
+                            <div class="warning-banner">
+                                <span class="icon">✗</span>
+                                <span class="text">No separation between understanding and execution. Structure and content are entangled.</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- SCI Panel -->
+                    <div class="architecture-panel">
+                        <div class="panel-label">
+                            <span class="label-letter">B</span>
+                            <span>SCI Architecture</span>
+                        </div>
+                        <div class="arch-diagram">
+                            <div class="input-box-sci">
+                                <div class="title">Input (Instruction Only) ✓</div>
+                            </div>
+                            
+                            <div class="phase-box phase1">
+                                <div class="phase-label">PHASE 1: UNDERSTANDING</div>
+                                <div class="encoder-row">
+                                    <div class="encoder-box structural">
+                                        <div class="encoder-title">Structural Encoder</div>
+                                        <div class="encoder-subtitle">(SE)</div>
+                                        <div class="key-component">+ AbstractionLayer</div>
+                                        <span class="lock-badge">LOCK</span>
+                                    </div>
+                                    <div class="encoder-box content">
+                                        <div class="encoder-title">Content Encoder</div>
+                                        <div class="encoder-subtitle">(CE)</div>
+                                        <div class="key-component">+ Orthogonality</div>
+                                        <span class="lock-badge">LOCK</span>
+                                    </div>
+                                </div>
+                                <div class="flow-arrow">↓</div>
+                                <div class="cbm-box">
+                                    <div class="cbm-title">Causal Binding Mechanism</div>
+                                    <div class="cbm-subtitle">(CBM)</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flow-arrow">↓</div>
+                            
+                            <div class="phase-box phase2">
+                                <div class="phase-label">PHASE 2: EXECUTION</div>
+                                <div class="transformer-box">
+                                    <div class="title">Transformer Layers + CBM Injection</div>
+                                    <div class="subtitle">Layers 3, 6, 9, 12, 16</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flow-arrow">↓</div>
+                            
+                            <div class="baseline-box output">
+                                <div class="box-label">Output</div>
+                            </div>
+                            
+                            <div class="success-banner">
+                                <span class="icon">✓</span>
+                                <span class="text">Explicit structure/content separation enables compositional generalization</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>Architectural comparison between baseline transformer and SCI.</strong>
+                <strong>(A)</strong> Standard transformers process all tokens uniformly without distinguishing structural patterns from content, leading to poor compositional generalization.
+                <strong>(B)</strong> SCI introduces a two-phase architecture: Phase 1 (Understanding) uses separate Structural and Content Encoders to disentangle patterns from entities, followed by Causal Binding. Phase 2 (Execution) injects the bound representations into transformer layers for generation. The LOCK badges indicate that encoders attend only to instruction tokens, preventing data leakage.
+            </div>
+        </div>
+
+        <!-- ============================================
+             FIGURE 2: SCI DETAILED ARCHITECTURE
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 2</div>
+                <div class="figure-title">SCI Detailed Architecture and Data Flow</div>
+            </div>
+            <div class="figure-content">
+                <div class="detailed-arch">
+                    <!-- Input -->
+                    <div class="arch-input">
+                        <div class="input-label">INPUT SEQUENCE</div>
+                        <div class="input-tokens">
+                            <span class="token instruction">walk</span>
+                            <span class="token instruction">twice</span>
+                            <span class="token instruction">and</span>
+                            <span class="token instruction">jump</span>
+                            <span class="token instruction">left</span>
+                            <span class="token response">WALK</span>
+                            <span class="token response">WALK</span>
+                            <span class="token response">TURN_L</span>
+                            <span class="token response">JUMP</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flow-connector">
+                        <span class="arrow-down">↓</span>
+                    </div>
+                    
+                    <!-- Dual Encoders -->
+                    <div class="dual-encoder-section">
+                        <div class="encoder-detailed structural">
+                            <div class="encoder-header">
+                                <span class="name">Structural Encoder</span>
+                                <span class="abbrev">SE</span>
+                            </div>
+                            <ul class="component-list">
+                                <li>
+                                    <span class="num">1</span>
+                                    <div>
+                                        <div class="comp-name">AbstractionLayer</div>
+                                        <div class="comp-desc">Filters content, preserves structure</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">2</span>
+                                    <div>
+                                        <div class="comp-name">Structure Queries (K=8)</div>
+                                        <div class="comp-desc">Learnable slot representations</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">3</span>
+                                    <div>
+                                        <div class="comp-name">Cross-Attention</div>
+                                        <div class="comp-desc">Queries attend to abstracted input</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">4</span>
+                                    <div>
+                                        <div class="comp-name">Edge Predictor</div>
+                                        <div class="comp-desc">Predicts causal edges between slots</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">5</span>
+                                    <div>
+                                        <div class="comp-name">Structural GNN</div>
+                                        <div class="comp-desc">Message passing over causal graph</div>
+                                    </div>
+                                </li>
+                            </ul>
+                            <div class="key-innovation">
+                                <div class="ki-label">🔑 KEY INNOVATION</div>
+                                <div>AbstractionLayer learns to suppress content words (walk, jump) while preserving structural words (twice, and, left)</div>
+                            </div>
+                            <div class="encoder-output">
+                                <div class="label">Output</div>
+                                <div class="output-val">[S₁, S₂, ..., Sₖ] + Edge Weights</div>
+                            </div>
+                        </div>
+                        
+                        <div class="encoder-detailed content">
+                            <div class="encoder-header">
+                                <span class="name">Content Encoder</span>
+                                <span class="abbrev">CE</span>
+                            </div>
+                            <ul class="component-list">
+                                <li>
+                                    <span class="num">1</span>
+                                    <div>
+                                        <div class="comp-name">Content Refiner</div>
+                                        <div class="comp-desc">2-layer transformer for entity extraction</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">2</span>
+                                    <div>
+                                        <div class="comp-name">Shared Embeddings</div>
+                                        <div class="comp-desc">Reuses base model embeddings</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">3</span>
+                                    <div>
+                                        <div class="comp-name">Orthogonal Projector</div>
+                                        <div class="comp-desc">Projects content ⊥ structure space</div>
+                                    </div>
+                                </li>
+                                <li>
+                                    <span class="num">4</span>
+                                    <div>
+                                        <div class="comp-name">Mean Pooling</div>
+                                        <div class="comp-desc">Aggregate per-token representations</div>
+                                    </div>
+                                </li>
+                            </ul>
+                            <div class="key-innovation">
+                                <div class="ki-label">🔑 KEY INNOVATION</div>
+                                <div>Orthogonality loss ensures content representations are independent of structural information</div>
+                            </div>
+                            <div class="encoder-output">
+                                <div class="label">Output</div>
+                                <div class="output-val">[C₁, C₂, ..., Cₙ]</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flow-connector">
+                        <span class="arrow-down">↓</span>
+                    </div>
+                    
+                    <!-- CBM -->
+                    <div class="binding-section">
+                        <div class="binding-header">
+                            <span class="name">Causal Binding Mechanism</span>
+                            <span class="abbrev">CBM</span>
+                        </div>
+                        <div class="binding-steps">
+                            <div class="binding-step">
+                                <div class="step-num">1</div>
+                                <div class="step-title">Binding Attention</div>
+                                <div class="step-desc">Structure slots query content vectors to determine slot-content assignments</div>
+                            </div>
+                            <div class="binding-step">
+                                <div class="step-num">2</div>
+                                <div class="step-title">Causal Intervention</div>
+                                <div class="step-desc">Propagate through causal graph using do-calculus principles</div>
+                            </div>
+                            <div class="binding-step">
+                                <div class="step-num">3</div>
+                                <div class="step-title">Broadcast</div>
+                                <div class="step-desc">Map bound slots back to token positions for transformer injection</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>Detailed SCI architecture showing component internals and data flow.</strong>
+                The Structural Encoder (SE) processes instruction tokens through an AbstractionLayer that learns to filter out content words, followed by cross-attention with learnable structure queries and a GNN for causal reasoning.
+                The Content Encoder (CE) extracts entity representations orthogonal to structure.
+                The Causal Binding Mechanism (CBM) combines both through binding attention, causal intervention, and broadcast operations.
+                Response tokens (crossed out) are masked during encoding to prevent data leakage.
+            </div>
+        </div>
+
+        <!-- ============================================
+             FIGURE 3: ABSTRACTION LAYER HEATMAP
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 3</div>
+                <div class="figure-title">AbstractionLayer: Structuralness Score Distribution</div>
+            </div>
+            <div class="figure-content">
+                <div class="heatmap-container">
+                    <div class="heatmap-title">
+                        <h3>Learned Structuralness Scores Across Feature Dimensions</h3>
+                        <p>Higher scores indicate structural tokens; lower scores indicate content tokens</p>
+                    </div>
+                    
+                    <div class="heatmap-wrapper">
+                        <div>
+                            <div class="heatmap-col-labels">
+                                <div class="heatmap-col-label content-word">walk</div>
+                                <div class="heatmap-col-label structure-word">twice</div>
+                                <div class="heatmap-col-label structure-word">and</div>
+                                <div class="heatmap-col-label content-word">jump</div>
+                                <div class="heatmap-col-label structure-word">left</div>
+                            </div>
+                            
+                            <div class="heatmap-grid">
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 1</div>
+                                    <div class="heatmap-cell low">0.12</div>
+                                    <div class="heatmap-cell high">0.94</div>
+                                    <div class="heatmap-cell high">0.91</div>
+                                    <div class="heatmap-cell low">0.15</div>
+                                    <div class="heatmap-cell high">0.87</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 2</div>
+                                    <div class="heatmap-cell low">0.08</div>
+                                    <div class="heatmap-cell high">0.92</div>
+                                    <div class="heatmap-cell high">0.88</div>
+                                    <div class="heatmap-cell low">0.11</div>
+                                    <div class="heatmap-cell high">0.85</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 3</div>
+                                    <div class="heatmap-cell low">0.15</div>
+                                    <div class="heatmap-cell high">0.95</div>
+                                    <div class="heatmap-cell high">0.90</div>
+                                    <div class="heatmap-cell low">0.12</div>
+                                    <div class="heatmap-cell high">0.89</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 4</div>
+                                    <div class="heatmap-cell low">0.10</div>
+                                    <div class="heatmap-cell high">0.93</div>
+                                    <div class="heatmap-cell high">0.92</div>
+                                    <div class="heatmap-cell low">0.14</div>
+                                    <div class="heatmap-cell high">0.86</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 5</div>
+                                    <div class="heatmap-cell low">0.13</div>
+                                    <div class="heatmap-cell high">0.91</div>
+                                    <div class="heatmap-cell high">0.89</div>
+                                    <div class="heatmap-cell low">0.16</div>
+                                    <div class="heatmap-cell high">0.88</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 6</div>
+                                    <div class="heatmap-cell low">0.09</div>
+                                    <div class="heatmap-cell high">0.96</div>
+                                    <div class="heatmap-cell high">0.93</div>
+                                    <div class="heatmap-cell low">0.10</div>
+                                    <div class="heatmap-cell high">0.90</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 7</div>
+                                    <div class="heatmap-cell low">0.11</div>
+                                    <div class="heatmap-cell high">0.94</div>
+                                    <div class="heatmap-cell high">0.91</div>
+                                    <div class="heatmap-cell low">0.13</div>
+                                    <div class="heatmap-cell high">0.84</div>
+                                </div>
+                                <div class="heatmap-row">
+                                    <div class="heatmap-row-label">Dim 8</div>
+                                    <div class="heatmap-cell low">0.14</div>
+                                    <div class="heatmap-cell high">0.92</div>
+                                    <div class="heatmap-cell high">0.88</div>
+                                    <div class="heatmap-cell low">0.15</div>
+                                    <div class="heatmap-cell high">0.87</div>
+                                </div>
+                            </div>
+                            
+                            <div class="heatmap-type-labels">
+                                <div class="heatmap-type-label content">Content</div>
+                                <div class="heatmap-type-label structure">Structure</div>
+                                <div class="heatmap-type-label structure">Structure</div>
+                                <div class="heatmap-type-label content">Content</div>
+                                <div class="heatmap-type-label structure">Structure</div>
+                            </div>
+                        </div>
+                        
+                        <div class="colorbar">
+                            <div class="colorbar-ticks">
+                                <span>1.0</span>
+                                <span>0.5</span>
+                                <span>0.0</span>
+                            </div>
+                            <div class="colorbar-gradient"></div>
+                            <div class="colorbar-label">Structuralness Score</div>
+                        </div>
+                    </div>
+                    
+                    <div class="heatmap-insight">
+                        <div class="insight-title">Key Observation</div>
+                        <p><strong>Content words</strong> (walk, jump) consistently receive <strong>low scores (0.08-0.16)</strong> → Suppressed in structural representation</p>
+                        <p><strong>Structural words</strong> (twice, and, left) consistently receive <strong>high scores (0.84-0.96)</strong> → Preserved as structural patterns</p>
+                        <p>This learned separation enables "walk twice" and "run twice" to produce <strong>identical structural representations</strong>.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>AbstractionLayer structuralness scores for input "walk twice and jump left".</strong>
+                The heatmap shows learned scores across 8 feature dimensions. Content words (walk, jump) receive consistently low scores and are suppressed, while structural words (twice, and, left) receive high scores and are preserved.
+                This learned filtering mechanism is the key innovation enabling structure-content disentanglement.
+            </div>
+        </div>
+
+        <!-- ============================================
+             FIGURE 4: DATA LEAKAGE PREVENTION
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 4</div>
+                <div class="figure-title">Instruction-Only Encoding: Data Leakage Prevention</div>
+            </div>
+            <div class="figure-content">
+                <div class="leakage-container">
+                    <div class="leakage-title">
+                        <h3>SE Cross-Attention Weights: Instruction vs Response Tokens</h3>
+                    </div>
+                    
+                    <div class="attention-heatmap">
+                        <div class="token-type-header">
+                            <div class="token-type-section instruction">Instruction Tokens</div>
+                            <div class="token-type-section response">Response Tokens (Masked)</div>
+                        </div>
+                        
+                        <div class="heatmap-col-labels">
+                            <div class="heatmap-col-label" style="color: #2E7D32;">walk</div>
+                            <div class="heatmap-col-label" style="color: #2E7D32;">twice</div>
+                            <div class="heatmap-col-label" style="color: #2E7D32;">and</div>
+                            <div class="heatmap-col-label" style="color: #2E7D32;">jump</div>
+                            <div class="heatmap-col-label" style="color: #2E7D32;">left</div>
+                            <div class="heatmap-col-label" style="color: #C62828;">WALK</div>
+                            <div class="heatmap-col-label" style="color: #C62828;">WALK</div>
+                            <div class="heatmap-col-label" style="color: #C62828;">TL</div>
+                            <div class="heatmap-col-label" style="color: #C62828;">JUMP</div>
+                        </div>
+                        
+                        <div class="attention-grid" style="position: relative;">
+                            <div class="boundary-line"></div>
+                            <div class="boundary-label">BOUNDARY</div>
+                            
+                            <div class="heatmap-row">
+                                <div class="heatmap-row-label">S1</div>
+                                <div class="attention-cell active">0.35</div>
+                                <div class="attention-cell medium">0.25</div>
+                                <div class="attention-cell low">0.15</div>
+                                <div class="attention-cell low">0.15</div>
+                                <div class="attention-cell low">0.10</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                            </div>
+                            <div class="heatmap-row">
+                                <div class="heatmap-row-label">S2</div>
+                                <div class="attention-cell low">0.20</div>
+                                <div class="attention-cell active">0.45</div>
+                                <div class="attention-cell low">0.15</div>
+                                <div class="attention-cell low">0.10</div>
+                                <div class="attention-cell low">0.10</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                            </div>
+                            <div class="heatmap-row">
+                                <div class="heatmap-row-label">S3</div>
+                                <div class="attention-cell low">0.15</div>
+                                <div class="attention-cell low">0.20</div>
+                                <div class="attention-cell active">0.40</div>
+                                <div class="attention-cell low">0.15</div>
+                                <div class="attention-cell low">0.10</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                            </div>
+                            <div class="heatmap-row">
+                                <div class="heatmap-row-label">S4</div>
+                                <div class="attention-cell low">0.10</div>
+                                <div class="attention-cell low">0.10</div>
+                                <div class="attention-cell low">0.15</div>
+                                <div class="attention-cell active">0.45</div>
+                                <div class="attention-cell low">0.20</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                                <div class="attention-cell zero">0.00</div>
+                            </div>
+                        </div>
+                        
+                        <div class="causal-correctness">
+                            <div class="check">✓</div>
+                            <h4>CAUSAL CORRECTNESS GUARANTEED</h4>
+                            <p>Response tokens cannot influence task encoding</p>
+                            <p>All attention weights on response tokens are <strong>exactly ZERO</strong> (enforced by masking)</p>
+                            <p>This ensures no data leakage from response to instruction understanding</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>Cross-attention weights from structural slots to input tokens, demonstrating data leakage prevention.</strong>
+                The heatmap shows that structural slots (S1-S4) attend only to instruction tokens (walk, twice, and, jump, left) with non-zero weights, while attention to response tokens (WALK, WALK, TURN_LEFT, JUMP) is exactly zero.
+                This is enforced by the attention mask during encoding, ensuring causal correctness: the model cannot "cheat" by looking at the answer when understanding the task.
+            </div>
+        </div>
+
+        <!-- ============================================
+             FIGURE 5: STRUCTURAL CONTRASTIVE LEARNING
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 5</div>
+                <div class="figure-title">Structural Contrastive Learning (SCL) Training Objective</div>
+            </div>
+            <div class="figure-content">
+                <div class="scl-container">
+                    <div class="scl-space">
+                        <div class="scl-title">Structural Representation Space</div>
+                        
+                        <!-- Positive Cluster -->
+                        <div class="positive-cluster">
+                            <div class="cluster-label">SAME STRUCTURE: [ACTION] twice</div>
+                            <div class="cluster-points">
+                                <div class="point">
+                                    <div class="point-circle structure">●</div>
+                                    <div class="point-label">"walk twice"</div>
+                                </div>
+                                <div class="pull-arrows">
+                                    <div class="pull-label">← PULL →</div>
+                                </div>
+                                <div class="point">
+                                    <div class="point-circle structure">●</div>
+                                    <div class="point-label">"run twice"</div>
+                                </div>
+                                <div class="pull-arrows">
+                                    <div class="pull-label">← PULL →</div>
+                                </div>
+                                <div class="point">
+                                    <div class="point-circle structure">●</div>
+                                    <div class="point-label">"jump twice"</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Push Arrow -->
+                        <div class="push-arrow">
+                            <div class="arrow">↓</div>
+                            <div class="push-label">PUSH APART</div>
+                            <div class="arrow">↓</div>
+                        </div>
+                        
+                        <!-- Negative Point -->
+                        <div class="negative-point">
+                            <div class="point">
+                                <div class="point-circle content">●</div>
+                                <div class="point-label">"walk and run"</div>
+                            </div>
+                            <div class="negative-label">DIFFERENT STRUCTURE: [ACTION] and [ACTION]</div>
+                        </div>
+                    </div>
+                    
+                    <div class="scl-formula">
+                        <div class="formula-label">SCL Loss Function</div>
+                        <div class="formula">
+                            ℒ<sub>SCL</sub> = −log [ exp(sim(z<sub>i</sub>, z<sub>j</sub><sup>+</sup>)/τ) / Σ<sub>k</sub> exp(sim(z<sub>i</sub>, z<sub>k</sub>)/τ) ]
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>Structural Contrastive Learning (SCL) training objective visualization.</strong>
+                SCL learns to pull together structural representations of inputs with the same structure but different content (e.g., "walk twice", "run twice", "jump twice" all share structure [ACTION] twice), while pushing apart representations of inputs with different structures (e.g., "walk and run" has structure [ACTION] and [ACTION]).
+                Pairs are generated automatically using rule-based template extraction from SCAN's grammar, requiring no human annotation.
+                The contrastive loss (shown below) uses temperature τ to control the sharpness of the similarity distribution.
+            </div>
+        </div>
+
+        <!-- ============================================
+             FIGURE 6: RESULTS
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 6</div>
+                <div class="figure-title">Experimental Results: Compositional Generalization Performance</div>
+            </div>
+            <div class="figure-content">
+                <div class="results-container">
+                    <div class="results-grid">
+                        <!-- SCAN Results -->
+                        <div class="result-panel">
+                            <h4><span class="panel-letter">A</span>SCAN Benchmark</h4>
+                            <div class="bar-chart">
+                                <div class="bar-group">
+                                    <div class="bar-label">In-Distribution</div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">Baseline</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill baseline" style="width: 95.2%;">95.2%</div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">SCI</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill sci" style="width: 98.4%;">98.4%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bar-group">
+                                    <div class="bar-label">Length Generalization (OOD) <span class="improvement-badge">+66.3%</span></div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">Baseline</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill baseline" style="width: 21.3%;">21.3%</div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">SCI</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill sci" style="width: 87.6%;">87.6%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bar-group">
+                                    <div class="bar-label">Template Generalization (OOD) <span class="improvement-badge">+40.7%</span></div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">Baseline</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill baseline" style="width: 52.4%;">52.4%</div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">SCI</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill sci" style="width: 93.1%;">93.1%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- COGS Results -->
+                        <div class="result-panel">
+                            <h4><span class="panel-letter">B</span>COGS Benchmark</h4>
+                            <div class="bar-chart">
+                                <div class="bar-group">
+                                    <div class="bar-label">In-Distribution</div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">Baseline</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill baseline" style="width: 92.1%;">92.1%</div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">SCI</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill sci" style="width: 96.3%;">96.3%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bar-group">
+                                    <div class="bar-label">Generalization Split (OOD) <span class="improvement-badge">+38.4%</span></div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">Baseline</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill baseline" style="width: 35.8%;">35.8%</div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-row">
+                                        <div class="bar-model">SCI</div>
+                                        <div class="bar-track">
+                                            <div class="bar-fill sci" style="width: 74.2%;">74.2%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Ablation Results -->
+                        <div class="result-panel ablation-panel">
+                            <h4><span class="panel-letter">C</span>Ablation Study (SCAN Length OOD)</h4>
+                            <div class="ablation-bars">
+                                <div class="ablation-row">
+                                    <div class="ablation-label">Baseline</div>
+                                    <div class="ablation-track">
+                                        <div class="ablation-fill baseline" style="width: 21.3%;">21.3%</div>
+                                    </div>
+                                </div>
+                                <div class="ablation-row">
+                                    <div class="ablation-label">No AbstractionLayer</div>
+                                    <div class="ablation-track">
+                                        <div class="ablation-fill partial" style="width: 38.5%;">38.5%</div>
+                                    </div>
+                                </div>
+                                <div class="ablation-row">
+                                    <div class="ablation-label">No SCL</div>
+                                    <div class="ablation-track">
+                                        <div class="ablation-fill partial" style="width: 48.2%;">48.2%</div>
+                                    </div>
+                                </div>
+                                <div class="ablation-row">
+                                    <div class="ablation-label">No CE</div>
+                                    <div class="ablation-track">
+                                        <div class="ablation-fill partial" style="width: 58.7%;">58.7%</div>
+                                    </div>
+                                </div>
+                                <div class="ablation-row">
+                                    <div class="ablation-label">No CBM</div>
+                                    <div class="ablation-track">
+                                        <div class="ablation-fill partial" style="width: 71.4%;">71.4%</div>
+                                    </div>
+                                </div>
+                                <div class="ablation-row">
+                                    <div class="ablation-label">Full SCI</div>
+                                    <div class="ablation-track">
+                                        <div class="ablation-fill full" style="width: 87.6%;">87.6%</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="key-finding">
+                                <h5>Key Findings</h5>
+                                <ul>
+                                    <li><strong>AbstractionLayer</strong> is the most critical component (largest drop when removed: -49.1%)</li>
+                                    <li><strong>SCL</strong> is essential for learning structural invariance (-39.4%)</li>
+                                    <li><strong>CBM</strong> provides meaningful but smaller gains (-16.2%)</li>
+                                    <li>All components contribute synergistically to full performance</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>Experimental results on compositional generalization benchmarks.</strong>
+                <strong>(A)</strong> SCAN results show SCI achieves 87.6% on length generalization (vs 21.3% baseline) and 93.1% on template generalization (vs 52.4% baseline).
+                <strong>(B)</strong> COGS results demonstrate transfer to semantic compositionality, with 74.2% on the generalization split (vs 35.8% baseline).
+                <strong>(C)</strong> Ablation study reveals that AbstractionLayer and SCL are the most critical components, with each ablation resulting in significant performance degradation.
+                All results are exact match accuracy averaged over 3 random seeds.
+            </div>
+        </div>
+
+        <!-- ============================================
+             FIGURE 7: STRUCTURAL INVARIANCE MATRIX
+             ============================================ -->
+        <div class="figure-container">
+            <div class="figure-header">
+                <div class="figure-number">Figure 7</div>
+                <div class="figure-title">Structural Invariance: Representation Similarity Analysis</div>
+            </div>
+            <div class="figure-content">
+                <div class="invariance-container">
+                    <div class="matrix-wrapper">
+                        <div style="position: relative;">
+                            <div class="matrix-header">
+                                <div class="matrix-col-label">walk<br>twice</div>
+                                <div class="matrix-col-label">run<br>twice</div>
+                                <div class="matrix-col-label">jump<br>twice</div>
+                                <div class="matrix-col-label">walk<br>and run</div>
+                                <div class="matrix-col-label">walk<br>left</div>
+                            </div>
+                            
+                            <div class="similarity-matrix">
+                                <div class="matrix-row">
+                                    <div class="matrix-row-label">walk twice</div>
+                                    <div class="matrix-cell very-high">1.00</div>
+                                    <div class="matrix-cell very-high">0.97</div>
+                                    <div class="matrix-cell very-high">0.96</div>
+                                    <div class="matrix-cell very-low">0.32</div>
+                                    <div class="matrix-cell very-low">0.28</div>
+                                </div>
+                                <div class="matrix-row">
+                                    <div class="matrix-row-label">run twice</div>
+                                    <div class="matrix-cell very-high">0.97</div>
+                                    <div class="matrix-cell very-high">1.00</div>
+                                    <div class="matrix-cell very-high">0.98</div>
+                                    <div class="matrix-cell very-low">0.35</div>
+                                    <div class="matrix-cell very-low">0.31</div>
+                                </div>
+                                <div class="matrix-row">
+                                    <div class="matrix-row-label">jump twice</div>
+                                    <div class="matrix-cell very-high">0.96</div>
+                                    <div class="matrix-cell very-high">0.98</div>
+                                    <div class="matrix-cell very-high">1.00</div>
+                                    <div class="matrix-cell very-low">0.33</div>
+                                    <div class="matrix-cell very-low">0.29</div>
+                                </div>
+                                <div class="matrix-row">
+                                    <div class="matrix-row-label">walk and run</div>
+                                    <div class="matrix-cell very-low">0.32</div>
+                                    <div class="matrix-cell very-low">0.35</div>
+                                    <div class="matrix-cell very-low">0.33</div>
+                                    <div class="matrix-cell very-high">1.00</div>
+                                    <div class="matrix-cell low">0.41</div>
+                                </div>
+                                <div class="matrix-row">
+                                    <div class="matrix-row-label">walk left</div>
+                                    <div class="matrix-cell very-low">0.28</div>
+                                    <div class="matrix-cell very-low">0.31</div>
+                                    <div class="matrix-cell very-low">0.29</div>
+                                    <div class="matrix-cell low">0.41</div>
+                                    <div class="matrix-cell very-high">1.00</div>
+                                </div>
+                            </div>
+                            
+                            <div class="same-structure-box"></div>
+                        </div>
+                        
+                        <div class="matrix-legend">
+                            <div class="legend-title">Cosine Similarity</div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #1B5E20;"></div>
+                                <div class="legend-label">> 0.90 (Very High)</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #4CAF50;"></div>
+                                <div class="legend-label">0.70 - 0.90 (High)</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #FFEB3B;"></div>
+                                <div class="legend-label">0.50 - 0.70 (Medium)</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #FF9800;"></div>
+                                <div class="legend-label">0.35 - 0.50 (Low)</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #F44336;"></div>
+                                <div class="legend-label">< 0.35 (Very Low)</div>
+                            </div>
+                            <div style="margin-top: 16px; padding: 8px; background: #E8F5E9; border: 1px dashed #4CAF50; border-radius: 4px;">
+                                <div style="font-size: 10px; color: #2E7D32; font-weight: 600;">
+                                    ─ ─ Same Structure
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="invariance-insight">
+                        <div class="insight-box">
+                            <div class="check-icon">✓</div>
+                            <h4>STRUCTURAL INVARIANCE ACHIEVED</h4>
+                            <p>"walk twice", "run twice", "jump twice" share >96% similarity despite different content</p>
+                            <p>Different structures have <35% similarity, enabling compositional generalization</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="figure-caption">
+                <strong>Structural representation similarity matrix demonstrating learned invariance.</strong>
+                The matrix shows pairwise cosine similarities between structural encoder outputs for different inputs.
+                The dashed box highlights inputs with the same structure [ACTION] twice, which achieve >96% similarity despite having different content words.
+                In contrast, inputs with different structures (e.g., "walk twice" vs "walk and run") have <35% similarity.
+                This confirms that SCI successfully learns structure-invariant representations where the structural pattern is preserved regardless of the specific content filling the slots.
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
