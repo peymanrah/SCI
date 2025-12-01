@@ -1,0 +1,115 @@
+# Base Configuration for SCI
+# This file contains all hyperparameters for the SCI architecture
+
+seed: 42
+
+# Model Architecture
+model:
+  # Base model (TinyLlama-1.1B)
+  base_model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  d_model: 2048  # TinyLlama hidden size
+  num_decoder_layers: 22  # TinyLlama num layers
+
+  # SCI feature flags
+  use_abstraction_layer: true
+  use_scl: true
+  use_orthogonality_loss: true
+  use_causal_binding: true
+
+  # Projection dimension (SCI encoders → TinyLlama)
+  projection_dim: 2048
+
+  # Positional Encoding
+  position_encoding:
+    type: "rotary"  # or "alibi"
+    max_length: 512
+    base: 10000  # RoPE base
+
+  # Structural Encoder
+  structural_encoder:
+    num_slots: 8  # Number of structural slots
+    num_layers: 12
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+
+    abstraction_layer:
+      hidden_multiplier: 2
+      residual_init: 0.1
+      temperature: 0.1
+      dropout: 0.1
+      injection_layers: [3, 6, 9]  # Inject at these encoder layers
+
+  # Content Encoder
+  content_encoder:
+    num_layers: 12
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+    pooling: "mean"
+
+  # Causal Binding Mechanism
+  causal_binding:
+    injection_layers: [6, 12, 18]  # Inject into TinyLlama at these layers
+    num_heads: 8
+    dropout: 0.1
+
+# Training
+training:
+  batch_size: 32
+  max_epochs: 50
+  gradient_clip: 1.0
+  warmup_steps: 1000
+  mixed_precision: true  # Use fp16
+
+  # Optimizer
+  optimizer:
+    type: "AdamW"
+    lr: 2e-5  # Base learning rate
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+    eps: 1e-8
+
+  # Scheduler
+  scheduler:
+    type: "cosine"
+    num_training_steps: 50000
+    num_warmup_steps: 1000
+
+# Loss Weights
+loss:
+  task_weight: 1.0  # Standard seq2seq loss
+  scl_weight: 0.3  # Structural contrastive learning
+  scl_warmup_steps: 5000  # Gradually increase SCL weight
+  ortho_weight: 0.1  # Orthogonality constraint
+  eos_weight: 2.0  # Upweight EOS token
+  scl_temperature: 0.07  # Temperature for contrastive loss
+
+# Data
+data:
+  dataset: "scan"
+  split: "simple"  # Training split
+  max_length: 512
+  scl_ratio: 0.5  # 50% of batch for SCL pairs
+  num_workers: 4
+
+# Evaluation
+evaluation:
+  batch_size: 64
+  beam_size: 1  # Greedy decoding for fair comparison
+  max_generation_length: 512
+
+# Logging
+logging:
+  wandb_project: "SCI-SCAN"
+  wandb_entity: null
+  wandb_tags: []
+  log_every_n_steps: 100
+  checkpoint_every_n_epochs: 5
+
+# Checkpointing
+checkpointing:
+  save_dir: "checkpoints"
+  keep_last_n: 3
