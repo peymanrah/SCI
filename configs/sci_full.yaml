@@ -1,0 +1,158 @@
+# SCI Full Configuration
+# Complete SCI architecture with all components enabled
+# Target: >85% OOD accuracy on SCAN length split
+
+# Inherits from base_config.yaml and overrides specific values
+
+seed: 42
+
+# Model Architecture
+model:
+  # Base TinyLlama model
+  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  base_model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  d_model: 2048  # TinyLlama hidden dimension
+  num_decoder_layers: 22
+
+  # Positional Encoding (RoPE for length generalization)
+  position_encoding:
+    type: "rotary"
+    max_length: 512
+    base: 10000
+
+  # Structural Encoder - ENABLED
+  structural_encoder:
+    enabled: true
+    num_slots: 8  # Number of abstract structural slots
+    num_layers: 12  # Transformer encoder layers
+    d_model: 512   # SE dimension
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+
+    # AbstractionLayer - THE KEY INNOVATION
+    abstraction_layer:
+      hidden_multiplier: 2  # MLP hidden size = d_model * multiplier
+      residual_init: 0.1    # Initial residual gate value
+      dropout: 0.1
+      injection_layers: [3, 6, 9]  # Inject AbstractionLayer at these SE layers
+
+    # Slot Attention pooling
+    slot_attention:
+      num_iterations: 3
+      epsilon: 1e-8
+
+  # Content Encoder - ENABLED
+  content_encoder:
+    enabled: true
+    num_layers: 2    # Lightweight (refines shared embeddings)
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+    pooling: "mean"  # Pool to [batch, d_model]
+    use_orthogonal_projection: false  # Use loss-based orthogonality instead
+
+  # Causal Binding Mechanism - ENABLED
+  causal_binding:
+    enabled: true
+    d_model: 2048    # TinyLlama dimension
+    num_heads: 8
+    dropout: 0.1
+    injection_layers: [6, 11, 16]  # Inject at early, middle, late TinyLlama layers
+    use_causal_intervention: true
+
+# Training Configuration
+training:
+  # Dataset
+  dataset: "scan"
+  split: "length"    # Train on length split (OOD generalization test)
+  subset: "train"
+  max_length: 128    # Sufficient for SCAN
+
+  # Batch configuration
+  batch_size: 32
+  gradient_accumulation_steps: 1
+  effective_batch_size: 32  # batch_size * gradient_accumulation_steps
+
+  # Training duration
+  max_epochs: 50
+  max_steps: null  # null = train for max_epochs
+
+  # Optimization
+  learning_rate: 2e-5
+  weight_decay: 0.01
+  gradient_clip: 1.0
+  warmup_steps: 1000
+
+  # Mixed precision
+  fp16: true
+  gradient_checkpointing: false  # Enable if OOM
+
+  # Pair generation (pre-cached)
+  pairs_cache_dir: ".cache/scan"
+  force_regenerate_pairs: false
+
+  # Checkpointing
+  save_every: 5       # Save every N epochs
+  eval_every: 1       # Evaluate every N epochs
+  checkpoint_dir: "checkpoints/sci_full"
+
+# Loss Configuration
+loss:
+  # Language Modeling loss weight
+  lm_weight: 1.0
+
+  # Structural Contrastive Learning
+  scl_weight: 0.3        # Target SCL weight
+  scl_warmup_epochs: 2   # Gradually increase SCL weight
+  scl_temperature: 0.07  # Temperature for NT-Xent loss
+
+  # Orthogonality loss (content ⊥ structure)
+  ortho_weight: 0.01
+
+  # Optional EOS enforcement
+  use_eos_loss: false
+  eos_weight: 0.1
+
+# Evaluation Configuration
+evaluation:
+  batch_size: 64
+
+  # Evaluation datasets (multiple OOD tests)
+  datasets:
+    - name: "scan"
+      split: "length"
+      subset: "test"
+    - name: "scan"
+      split: "simple"
+      subset: "test"
+
+  # Generation settings
+  max_generation_length: 128
+  num_beams: 1           # Greedy decoding
+  do_sample: false
+
+  # Metrics
+  compute_exact_match: true
+  compute_structural_invariance: true
+
+# Logging Configuration
+logging:
+  use_wandb: true
+  wandb_project: "SCI-Nature"
+  wandb_entity: null
+  wandb_tags: ["sci_full", "scan_length", "tinyllama"]
+  log_every: 10  # Log every N steps
+
+  # Outputs
+  log_dir: "logs/sci_full"
+  results_dir: "results/sci_full"
+
+# Expected Results
+# These are target metrics for verification
+expected_results:
+  scan_length_id: 0.95   # In-distribution
+  scan_length_ood: 0.85  # Out-of-distribution (length generalization)
+  scan_simple: 0.98      # Standard split
+  structural_invariance: 0.89  # Same-structure similarity

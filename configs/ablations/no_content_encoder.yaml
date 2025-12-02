@@ -1,0 +1,50 @@
+# Ablation: No Content Encoder
+# Tests: Is separate content encoding necessary?
+# Expected: Lower performance due to mixing content and structure
+
+seed: 42
+
+model:
+  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
+  structural_encoder:
+    enabled: true
+    num_slots: 8
+    num_layers: 12
+    abstraction_layer:
+      injection_layers: [3, 6, 9]
+
+  content_encoder:
+    enabled: false  # DISABLED
+
+  causal_binding:
+    enabled: true
+    d_model: 2048
+    injection_layers: [6, 11, 16]
+
+training:
+  dataset: "scan"
+  split: "length"
+  batch_size: 32
+  max_epochs: 50
+  learning_rate: 2e-5
+  fp16: true
+  checkpoint_dir: "checkpoints/ablation_no_ce"
+
+loss:
+  lm_weight: 1.0
+  scl_weight: 0.3
+  ortho_weight: 0.0  # N/A without CE
+
+evaluation:
+  batch_size: 64
+  datasets:
+    - {name: "scan", split: "length", subset: "test"}
+
+logging:
+  wandb_project: "SCI-Nature"
+  wandb_tags: ["ablation", "no_content_encoder"]
+  log_dir: "logs/ablation_no_ce"
+
+expected_results:
+  scan_length_ood: 0.60

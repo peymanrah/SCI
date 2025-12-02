@@ -1,0 +1,102 @@
+# Baseline Configuration
+# Standard TinyLlama fine-tuning WITHOUT SCI components
+# Expected to fail on OOD generalization (<20% on length split)
+
+seed: 42
+
+# Model Architecture
+model:
+  # Base TinyLlama model (same as SCI)
+  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  base_model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  d_model: 2048
+  num_decoder_layers: 22
+
+  # Positional Encoding
+  position_encoding:
+    type: "rotary"
+    max_length: 512
+    base: 10000
+
+  # ALL SCI COMPONENTS DISABLED
+  structural_encoder:
+    enabled: false
+
+  content_encoder:
+    enabled: false
+
+  causal_binding:
+    enabled: false
+
+# Training Configuration (same as SCI for fair comparison)
+training:
+  # Dataset
+  dataset: "scan"
+  split: "length"
+  subset: "train"
+  max_length: 128
+
+  # Batch configuration (same as SCI)
+  batch_size: 32
+  gradient_accumulation_steps: 1
+
+  # Training duration
+  max_epochs: 50
+
+  # Optimization (same as SCI)
+  learning_rate: 2e-5
+  weight_decay: 0.01
+  gradient_clip: 1.0
+  warmup_steps: 1000
+
+  # Mixed precision
+  fp16: true
+
+  # Checkpointing
+  save_every: 5
+  eval_every: 1
+  checkpoint_dir: "checkpoints/baseline"
+
+# Loss Configuration (only LM loss)
+loss:
+  lm_weight: 1.0
+
+  # NO SCI losses
+  scl_weight: 0.0
+  ortho_weight: 0.0
+
+# Evaluation Configuration
+evaluation:
+  batch_size: 64
+
+  datasets:
+    - name: "scan"
+      split: "length"
+      subset: "test"
+    - name: "scan"
+      split: "simple"
+      subset: "test"
+
+  max_generation_length: 128
+  num_beams: 1
+  do_sample: false
+
+  compute_exact_match: true
+  compute_structural_invariance: false  # N/A for baseline
+
+# Logging
+logging:
+  use_wandb: true
+  wandb_project: "SCI-Nature"
+  wandb_tags: ["baseline", "scan_length", "tinyllama"]
+  log_every: 10
+
+  log_dir: "logs/baseline"
+  results_dir: "results/baseline"
+
+# Expected Results
+expected_results:
+  scan_length_id: 0.95      # Should be similar to SCI
+  scan_length_ood: 0.20     # POOR OOD performance (this is the key difference)
+  scan_simple: 0.95         # Should be similar to SCI
+  structural_invariance: 0.42  # Low (no structural learning)

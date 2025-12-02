@@ -1,0 +1,300 @@
+"""
+SCI Trainer: Main training loop with SCL warmup and structural pair learning.
+
+Key Features:
+1. SCL loss warmup schedule (prevents early instability)
+2. Pre-computed structural pairs (cached, fast batch lookup)
+3. Mixed precision training (fp16)
+4. Gradient accumulation
+5. WandB logging
+6. Checkpointing with best model tracking
+"""
+
+import os
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torch.cuda.amp import GradScaler, autocast
+from transformers import get_linear_schedule_with_warmup, AdamW
+from typing import Dict, Optional
+from tqdm import tqdm
+import yaml
+
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    print("Warning: wandb not available. Logging disabled.")
+
+from sci.models.sci_model import SCIModel
+from sci.models.losses.combined_loss import SCICombinedLoss
+from sci.data.datasets.scan_dataset import SCANDataset, SCANCollator
+
+
+class SCITrainer:
+    """
+    SCI Trainer with SCL warmup and structural pair learning.
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device: {self.device}")
+
+        # Initialize model
+        print("Initializing SCI model...")
+        self.model = SCIModel(config).to(self.device)
+
+        # Initialize loss function
+        self.loss_fn = SCICombinedLoss(
+            scl_weight=config.loss.scl_weight,
+            ortho_weight=config.loss.ortho_weight,
+            temperature=config.loss.scl_temperature,
+        )
+
+        # Initialize dataset
+        print(f"Loading {config.training.dataset} dataset...")
+        self.train_dataset = SCANDataset(
+            tokenizer=self.model.tokenizer,
+            split_name=config.training.split,
+            subset=config.training.subset,
+            max_length=config.training.max_length,
+            cache_dir=config.training.get('pairs_cache_dir', '.cache/scan'),
+            force_regenerate_pairs=config.training.get('force_regenerate_pairs', False),
+        )
+
+        # Data collator
+        self.collator = SCANCollator(self.train_dataset)
+
+        # Data loader
+        self.train_loader = DataLoader(
+            self.train_dataset,
+            batch_size=config.training.batch_size,
+            shuffle=True,
+            collate_fn=self.collator,
+            num_workers=0,  # Set to 0 for Windows compatibility
+            pin_memory=True if torch.cuda.is_available() else False,
+        )
+
+        # Optimizer
+        self.optimizer = AdamW(
+            self.model.parameters(),
+            lr=config.training.learning_rate,
+            weight_decay=config.training.weight_decay,
+        )
+
+        # Scheduler
+        total_steps = len(self.train_loader) * config.training.max_epochs
+        self.scheduler = get_linear_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=config.training.warmup_steps,
+            num_training_steps=total_steps,
+        )
+
+        # Mixed precision scaler
+        self.scaler = GradScaler() if config.training.fp16 else None
+
+        # SCL warmup
+        self.scl_warmup_epochs = config.loss.get('scl_warmup_epochs', 2)
+
+        # Logging
+        self.use_wandb = WANDB_AVAILABLE and config.logging.get('use_wandb', False)
+        if self.use_wandb:
+            wandb.init(
+                project=config.logging.wandb_project,
+                config=self._config_to_dict(config),
+                tags=config.logging.get('wandb_tags', []),
+            )
+            wandb.watch(self.model, log='all', log_freq=100)
+
+        # Checkpointing
+        self.checkpoint_dir = config.training.checkpoint_dir
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+        # Training state
+        self.global_step = 0
+        self.epoch = 0
+        self.best_loss = float('inf')
+
+    def _config_to_dict(self, config):
+        """Convert config object to dictionary for logging."""
+        if hasattr(config, 'to_dict'):
+            return config.to_dict()
+        elif hasattr(config, '__dict__'):
+            return {k: self._config_to_dict(v) for k, v in config.__dict__.items()}
+        else:
+            return config
+
+    def compute_scl_weight(self, epoch: int) -> float:
+        """Compute SCL weight with warmup."""
+        base_weight = self.config.loss.scl_weight
+
+        if epoch < self.scl_warmup_epochs:
+            # Linear warmup
+            return base_weight * (epoch + 1) / self.scl_warmup_epochs
+        else:
+            return base_weight
+
+    def train_epoch(self, epoch: int) -> Dict[str, float]:
+        """Train for one epoch."""
+        self.model.train()
+
+        total_loss = 0.0
+        total_lm_loss = 0.0
+        total_scl_loss = 0.0
+        total_ortho_loss = 0.0
+        num_batches = 0
+
+        # Get current SCL weight
+        scl_weight = self.compute_scl_weight(epoch)
+
+        progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}")
+
+        for batch_idx, batch in enumerate(progress_bar):
+            # Move to device
+            input_ids = batch['input_ids'].to(self.device)
+            attention_mask = batch['attention_mask'].to(self.device)
+            labels = batch['labels'].to(self.device)
+            pair_labels = batch['pair_labels'].to(self.device)
+
+            # Forward pass with mixed precision
+            with autocast() if self.scaler else torch.enable_grad():
+                outputs = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    return_dict=True,
+                )
+
+                # Compute combined loss
+                losses = self.loss_fn(
+                    model_outputs=outputs,
+                    pair_labels=pair_labels,
+                    scl_weight_override=scl_weight,
+                )
+
+                loss = losses['total_loss']
+
+            # Backward pass
+            if self.scaler:
+                self.scaler.scale(loss).backward()
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                self.optimizer.step()
+
+            self.scheduler.step()
+            self.optimizer.zero_grad()
+
+            self.global_step += 1
+
+            # Track losses
+            total_loss += losses['total_loss'].item()
+            total_lm_loss += losses['lm_loss'].item()
+            total_scl_loss += losses['scl_loss'].item() if torch.is_tensor(losses['scl_loss']) else losses['scl_loss']
+            total_ortho_loss += losses['orthogonality_loss'].item() if torch.is_tensor(losses['orthogonality_loss']) else losses['orthogonality_loss']
+            num_batches += 1
+
+            # Update progress bar
+            progress_bar.set_postfix({
+                'loss': total_loss / num_batches,
+                'scl': total_scl_loss / num_batches,
+            })
+
+            # Log to wandb
+            if self.use_wandb and self.global_step % self.config.logging.get('log_every', 10) == 0:
+                wandb.log({
+                    'train/total_loss': losses['total_loss'].item(),
+                    'train/lm_loss': losses['lm_loss'].item(),
+                    'train/scl_loss': total_scl_loss / num_batches,
+                    'train/ortho_loss': total_ortho_loss / num_batches,
+                    'train/scl_weight': scl_weight,
+                    'train/lr': self.scheduler.get_last_lr()[0],
+                    'train/step': self.global_step,
+                    'train/epoch': epoch,
+                })
+
+        return {
+            'total_loss': total_loss / num_batches,
+            'lm_loss': total_lm_loss / num_batches,
+            'scl_loss': total_scl_loss / num_batches,
+            'ortho_loss': total_ortho_loss / num_batches,
+        }
+
+    def train(self):
+        """Full training loop."""
+        print(f"\nStarting training for {self.config.training.max_epochs} epochs...")
+
+        for epoch in range(self.config.training.max_epochs):
+            self.epoch = epoch
+
+            # Train epoch
+            train_metrics = self.train_epoch(epoch)
+
+            print(f"\nEpoch {epoch+1}/{self.config.training.max_epochs}")
+            print(f"  Loss: {train_metrics['total_loss']:.4f}")
+            print(f"  LM: {train_metrics['lm_loss']:.4f}")
+            print(f"  SCL: {train_metrics['scl_loss']:.4f}")
+            print(f"  Ortho: {train_metrics['ortho_loss']:.4f}")
+
+            # Save checkpoint
+            if (epoch + 1) % self.config.training.get('save_every', 5) == 0:
+                self.save_checkpoint(f'epoch_{epoch+1}')
+
+            # Save best model
+            if train_metrics['total_loss'] < self.best_loss:
+                self.best_loss = train_metrics['total_loss']
+                self.save_checkpoint('best')
+                print(f"  New best loss: {self.best_loss:.4f}")
+
+        # Final save
+        self.save_checkpoint('final')
+        print(f"\nTraining complete!")
+
+    def save_checkpoint(self, name: str):
+        """Save model checkpoint."""
+        save_path = os.path.join(self.checkpoint_dir, name)
+        self.model.save_pretrained(save_path)
+
+        # Save training state
+        torch.save({
+            'epoch': self.epoch,
+            'global_step': self.global_step,
+            'best_loss': self.best_loss,
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict(),
+        }, os.path.join(save_path, 'training_state.pt'))
+
+        print(f"  Saved checkpoint: {save_path}")
+
+
+if __name__ == "__main__":
+    # Quick test
+    print("Testing SCITrainer...")
+
+    from sci.config.config_loader import load_config
+
+    # Load config
+    config = load_config("configs/sci_full.yaml")
+
+    # Override for testing
+    config.training.max_epochs = 2
+    config.training.batch_size = 4
+    config.logging.use_wandb = False
+
+    # Create trainer
+    trainer = SCITrainer(config)
+
+    print(f"✓ Trainer initialized")
+    print(f"  Dataset size: {len(trainer.train_dataset)}")
+    print(f"  Batches per epoch: {len(trainer.train_loader)}")
+
+    # # Test one epoch (uncomment to test)
+    # print("\nTesting one epoch...")
+    # metrics = trainer.train_epoch(0)
+    # print(f"✓ Epoch completed: {metrics}")

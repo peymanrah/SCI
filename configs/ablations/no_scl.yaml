@@ -1,0 +1,58 @@
+# Ablation: No SCL Loss
+# Tests: Can structural invariance emerge without explicit contrastive learning?
+# Expected: Lower structural invariance, worse OOD performance
+
+seed: 42
+
+model:
+  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  d_model: 2048
+
+  structural_encoder:
+    enabled: true
+    num_slots: 8
+    num_layers: 12
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    abstraction_layer:
+      injection_layers: [3, 6, 9]
+
+  content_encoder:
+    enabled: true
+    num_layers: 2
+    d_model: 512
+
+  causal_binding:
+    enabled: true
+    d_model: 2048
+    injection_layers: [6, 11, 16]
+
+training:
+  dataset: "scan"
+  split: "length"
+  batch_size: 32
+  max_epochs: 50
+  learning_rate: 2e-5
+  fp16: true
+  checkpoint_dir: "checkpoints/ablation_no_scl"
+
+loss:
+  lm_weight: 1.0
+  scl_weight: 0.0  # DISABLED
+  ortho_weight: 0.01
+
+evaluation:
+  batch_size: 64
+  datasets:
+    - {name: "scan", split: "length", subset: "test"}
+
+logging:
+  wandb_project: "SCI-Nature"
+  wandb_tags: ["ablation", "no_scl"]
+  log_dir: "logs/ablation_no_scl"
+  results_dir: "results/ablation_no_scl"
+
+expected_results:
+  scan_length_ood: 0.55  # Lower than full SCI
+  structural_invariance: 0.65  # Lower than full SCI (0.89)

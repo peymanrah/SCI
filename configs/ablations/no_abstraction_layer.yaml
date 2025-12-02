@@ -1,0 +1,74 @@
+# Ablation: No AbstractionLayer
+# Tests: Is AbstractionLayer necessary for structural learning?
+# Expected: Performance should drop significantly without AbstractionLayer
+
+seed: 42
+
+model:
+  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  d_model: 2048
+
+  position_encoding:
+    type: "rotary"
+    max_length: 512
+    base: 10000
+
+  structural_encoder:
+    enabled: true
+    num_slots: 8
+    num_layers: 12
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+
+    abstraction_layer:
+      # DISABLE AbstractionLayer by not injecting it
+      injection_layers: []  # EMPTY - no abstraction layer injection
+
+  content_encoder:
+    enabled: true
+    num_layers: 2
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+    pooling: "mean"
+
+  causal_binding:
+    enabled: true
+    d_model: 2048
+    num_heads: 8
+    dropout: 0.1
+    injection_layers: [6, 11, 16]
+
+training:
+  dataset: "scan"
+  split: "length"
+  batch_size: 32
+  max_epochs: 50
+  learning_rate: 2e-5
+  fp16: true
+  checkpoint_dir: "checkpoints/ablation_no_al"
+
+loss:
+  lm_weight: 1.0
+  scl_weight: 0.3
+  scl_warmup_epochs: 2
+  scl_temperature: 0.07
+  ortho_weight: 0.01
+
+evaluation:
+  batch_size: 64
+  datasets:
+    - {name: "scan", split: "length", subset: "test"}
+
+logging:
+  use_wandb: true
+  wandb_project: "SCI-Nature"
+  wandb_tags: ["ablation", "no_abstraction_layer"]
+  log_dir: "logs/ablation_no_al"
+  results_dir: "results/ablation_no_al"
+
+expected_results:
+  scan_length_ood: 0.45  # Lower than full SCI (0.85)
