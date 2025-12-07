@@ -286,9 +286,13 @@ if __name__ == "__main__":
     print(f"Batch keys: {batch.keys()}")
     print(f"Input IDs shape: {batch['input_ids'].shape}")
     
-    # Get pair labels from pair_generator
-    if 'commands' in batch:
-        pair_labels = dataset.pair_generator.get_batch_pair_labels(batch['commands'])
+    # #99 FIX: Use 'idx' key which is what __getitem__ returns
+    # The collator receives dicts with 'commands', 'actions', 'idx' keys
+    # and produces batches with 'input_ids', 'attention_mask', 'labels', etc.
+    if hasattr(dataset, 'pair_generator'):
+        # Get indices from the batch (collator should pass through or we use dataset directly)
+        sample_indices = list(range(min(len(dataset), batch['input_ids'].shape[0])))
+        pair_labels = dataset.pair_generator.get_batch_pair_labels(sample_indices)
         print(f"Pair labels shape: {pair_labels.shape}")
         print(f"\nPair labels matrix:")
         print(pair_labels)

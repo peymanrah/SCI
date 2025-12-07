@@ -314,15 +314,23 @@ class CausalBindingMechanism(nn.Module):
             # Use pre-learned position queries
             pos_queries = self.position_queries[:, :seq_len, :].to(device).expand(batch_size, -1, -1)
         else:
-            # For longer sequences, interpolate position queries
-            # This allows handling sequences beyond base_max_seq_len
-            import torch.nn.functional as F
-            # Interpolate to seq_len using linear interpolation
-            pos_queries_base = self.position_queries.to(device)  # [1, base_max, d_model]
-            pos_queries_base = pos_queries_base.transpose(1, 2)  # [1, d_model, base_max]
-            pos_queries = F.interpolate(pos_queries_base, size=seq_len, mode='linear', align_corners=True)
-            pos_queries = pos_queries.transpose(1, 2)  # [1, seq_len, d_model]
-            pos_queries = pos_queries.expand(batch_size, -1, -1)
+            # #101 FIX: Cache interpolated position queries for performance
+            # Check if we have a cached version for this seq_len
+            cache_key = f"_cached_pos_queries_{seq_len}"
+            if hasattr(self, cache_key):
+                pos_queries = getattr(self, cache_key).to(device).expand(batch_size, -1, -1)
+            else:
+                # For longer sequences, interpolate position queries
+                # This allows handling sequences beyond base_max_seq_len
+                import torch.nn.functional as F
+                # Interpolate to seq_len using linear interpolation
+                pos_queries_base = self.position_queries.to(device)  # [1, base_max, d_model]
+                pos_queries_base = pos_queries_base.transpose(1, 2)  # [1, d_model, base_max]
+                pos_queries = F.interpolate(pos_queries_base, size=seq_len, mode='linear', align_corners=True)
+                pos_queries = pos_queries.transpose(1, 2)  # [1, seq_len, d_model]
+                # Cache for future use (register as buffer so it moves with model)
+                self.register_buffer(cache_key, pos_queries.clone(), persistent=False)
+                pos_queries = pos_queries.expand(batch_size, -1, -1)
 
         # Broadcast attention: position queries attend to bound slots
         broadcast_repr, _ = self._multihead_attention(
