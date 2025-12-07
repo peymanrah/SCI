@@ -59,7 +59,7 @@ def eos_token_loss(
     return loss
 
 
-class EO SLoss(nn.Module):
+class EOSLoss(nn.Module):
     """EOS loss as a module for easier integration."""
 
     def __init__(self, eos_token_id: int, lambda_eos: float = 2.0, ignore_index: int = -100):

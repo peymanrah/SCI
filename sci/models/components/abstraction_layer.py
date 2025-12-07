@@ -130,20 +130,24 @@ class AbstractionLayer(nn.Module):
                 - low_structural_ratio: Fraction of scores < 0.3
                 - token_structural_scores: Average score per token position
         """
+        # CRITICAL #9: Add eps=1e-8 protection against division by zero
+        eps = 1e-8
+
         if attention_mask is not None:
             mask_expanded = attention_mask.unsqueeze(-1).float()
             valid_scores = structural_scores * mask_expanded
-            num_valid = mask_expanded.sum()
+            # Count valid elements: mask_expanded has shape [batch, seq, 1], need to account for d_model
+            num_valid = mask_expanded.sum() * structural_scores.size(-1)
         else:
             valid_scores = structural_scores
             num_valid = structural_scores.numel()
 
-        # Average score across all dimensions and tokens
-        mean_score = valid_scores.sum() / num_valid
+        # Average score across all dimensions and tokens (with epsilon protection)
+        mean_score = valid_scores.sum() / (num_valid + eps)
 
-        # Count high/low structural scores
-        high_structural = (valid_scores > 0.7).float().sum() / num_valid
-        low_structural = (valid_scores < 0.3).float().sum() / num_valid
+        # Count high/low structural scores (with epsilon protection)
+        high_structural = (valid_scores > 0.7).float().sum() / (num_valid + eps)
+        low_structural = (valid_scores < 0.3).float().sum() / (num_valid + eps)
 
         # Average structural score per token (avg across d_model dimension)
         token_scores = structural_scores.mean(dim=-1)  # [batch_size, seq_len]

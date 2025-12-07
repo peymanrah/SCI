@@ -77,10 +77,10 @@ class SCITrainer:
             pin_memory=True if torch.cuda.is_available() else False,
         )
 
-        # Optimizer
+        # Optimizer with separate learning rates for base and SCI modules
+        optimizer_groups = self._get_optimizer_groups()
         self.optimizer = AdamW(
-            self.model.parameters(),
-            lr=config.training.learning_rate,
+            optimizer_groups,
             weight_decay=config.training.weight_decay,
         )
 
@@ -116,6 +116,67 @@ class SCITrainer:
         self.global_step = 0
         self.epoch = 0
         self.best_loss = float('inf')
+
+    def _get_optimizer_groups(self):
+        """
+        Create parameter groups with different learning rates.
+
+        Base model parameters get base_lr (2e-5).
+        SCI module parameters get sci_lr (5e-5) - 2.5x higher for faster learning.
+        No decay parameters (biases, layer norms) get base_lr with 0 weight decay.
+
+        Returns:
+            List of parameter group dictionaries for optimizer
+        """
+        base_params = []
+        sci_params = []
+        no_decay_params = []
+
+        base_lr = self.config.training.learning_rate  # 2e-5
+        sci_lr = getattr(self.config.training, 'sci_learning_rate', base_lr * 2.5)  # 5e-5
+
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+
+            # No decay for biases and layer norms
+            if any(nd in name for nd in ['bias', 'LayerNorm', 'layer_norm']):
+                no_decay_params.append(param)
+            # SCI modules get higher LR
+            elif any(sci in name.lower() for sci in [
+                'structural_encoder', 'content_encoder',
+                'causal_binding', 'abstraction'
+            ]):
+                sci_params.append(param)
+            # Base model parameters
+            else:
+                base_params.append(param)
+
+        print(f"\n{'='*70}")
+        print("Optimizer Parameter Groups:")
+        print(f"{'='*70}")
+        print(f"  Base model params: {len(base_params):,} parameters @ LR={base_lr:.2e}")
+        print(f"  SCI module params: {len(sci_params):,} parameters @ LR={sci_lr:.2e} (2.5x higher)")
+        print(f"  No decay params:   {len(no_decay_params):,} parameters @ LR={base_lr:.2e}, WD=0.0")
+        print(f"{'='*70}\n")
+
+        return [
+            {
+                'params': base_params,
+                'lr': base_lr,
+                'weight_decay': self.config.training.weight_decay
+            },
+            {
+                'params': sci_params,
+                'lr': sci_lr,
+                'weight_decay': self.config.training.weight_decay
+            },
+            {
+                'params': no_decay_params,
+                'lr': base_lr,
+                'weight_decay': 0.0
+            },
+        ]
 
     def _config_to_dict(self, config):
         """Convert config object to dictionary for logging."""

@@ -11,6 +11,16 @@ Key components:
 3. AbstractionLayer injection at layers [3, 6, 9]
 4. Transformer encoder (12 layers)
 5. Slot Attention pooling (8 slots)
+
+LOW #81: Slot Attention Citation
+---------------------------------
+Slot Attention is based on:
+    Locatello et al., "Object-Centric Learning with Slot Attention"
+    NeurIPS 2020
+    https://arxiv.org/abs/2006.15055
+
+We use slot attention to pool variable-length sequences into a fixed number
+of structural slots, enabling permutation-invariant structural representations.
 """
 
 import torch
@@ -58,6 +68,8 @@ class StructuralEncoder(nn.Module):
 
         # AbstractionLayer injection configuration
         self.injection_layers = config.model.structural_encoder.abstraction_layer.injection_layers
+        # Alias for tests
+        self.abstraction_layer_positions = self.injection_layers
 
         # Shared embedding (will be set from TinyLlama)
         self.embedding = None  # Set externally
@@ -69,8 +81,11 @@ class StructuralEncoder(nn.Module):
             base=config.model.position_encoding.base,
         )
 
-        # Input projection (if d_model differs from embedding dim)
-        self.input_projection = nn.Linear(self.d_model, self.d_model)
+        # Input projection (from embedding dim to encoder d_model)
+        # Default to identity projection, will be replaced if dimensions differ
+        self.embedding_dim = self.d_model
+        self.input_projection = nn.Identity()
+        self._projection_initialized = False
 
         # Transformer encoder layers
         self.layers = nn.ModuleList([
@@ -85,6 +100,9 @@ class StructuralEncoder(nn.Module):
             )
             for _ in range(self.num_layers)
         ])
+
+        # Alias for compatibility with tests
+        self.encoder = self.layers
 
         # AbstractionLayer modules at specific depths
         # CRITICAL: These are THE KEY INNOVATION
@@ -135,15 +153,40 @@ class StructuralEncoder(nn.Module):
             structural_slots: [batch_size, num_slots, d_model]
             structural_scores_all: List of score tensors from each AbstractionLayer
         """
+        # HIGH #38: Add tensor size checks
+        assert input_ids.dim() == 2, \
+            f"input_ids must be 2D [batch, seq_len], got {input_ids.dim()}D"
+
+        if attention_mask is not None:
+            assert attention_mask.shape == input_ids.shape, \
+                f"attention_mask shape {attention_mask.shape} != input_ids shape {input_ids.shape}"
+
+        if instruction_mask is not None:
+            assert instruction_mask.shape == input_ids.shape, \
+                f"instruction_mask shape {instruction_mask.shape} != input_ids shape {input_ids.shape}"
+
         batch_size, seq_len = input_ids.shape
 
         # Get embeddings
         # CRITICAL: Use shared embeddings
         assert self.embedding is not None, "CRITICAL: Shared embedding not set!"
-        hidden_states = self.embedding(input_ids)  # [batch, seq_len, d_model]
+        hidden_states = self.embedding(input_ids)  # [batch, seq_len, embedding_dim]
 
-        # Project to encoder dimension if needed
-        hidden_states = self.input_projection(hidden_states)
+        # Create input projection if dimensions differ and not yet initialized
+        if not self._projection_initialized:
+            self.embedding_dim = hidden_states.shape[-1]
+            if self.embedding_dim != self.d_model:
+                # Get model's device (in case it was moved after __init__)
+                model_device = next(self.parameters()).device
+                self.input_projection = nn.Linear(self.embedding_dim, self.d_model).to(
+                    device=model_device,
+                    dtype=hidden_states.dtype
+                )
+                print(f"Created input projection: {self.embedding_dim} -> {self.d_model} on {model_device}")
+            self._projection_initialized = True
+
+        # Project to encoder dimension
+        hidden_states = self.input_projection(hidden_states)  # [batch, seq_len, d_model]
 
         # Apply rotary positional encoding
         hidden_states = self.pos_encoding(hidden_states)
@@ -176,6 +219,12 @@ class StructuralEncoder(nn.Module):
             # Apply transformer layer
             hidden_states = layer(hidden_states, src_key_padding_mask=transformer_mask)
 
+            # CRITICAL: Re-apply instruction mask after each layer to prevent leakage
+            # This ensures response tokens remain zeroed even after residual connections
+            if instruction_mask is not None:
+                mask_expanded = instruction_mask.unsqueeze(-1).float()
+                hidden_states = hidden_states * mask_expanded
+
             # Inject AbstractionLayer at specific layers
             if str(i) in self.abstraction_layers:
                 hidden_states, scores = self.abstraction_layers[str(i)](
@@ -183,8 +232,18 @@ class StructuralEncoder(nn.Module):
                 )
                 structural_scores_all.append(scores)
 
+                # Re-apply mask after abstraction layer as well
+                if instruction_mask is not None:
+                    mask_expanded = instruction_mask.unsqueeze(-1).float()
+                    hidden_states = hidden_states * mask_expanded
+
         # Final normalization
         hidden_states = self.final_norm(hidden_states)
+
+        # CRITICAL: Re-apply mask after final norm
+        if instruction_mask is not None:
+            mask_expanded = instruction_mask.unsqueeze(-1).float()
+            hidden_states = hidden_states * mask_expanded
 
         # Pool to structural slots using Slot Attention
         structural_slots = self.slot_attention(hidden_states, attention_mask)

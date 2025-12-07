@@ -1,5 +1,8 @@
 """SCI models and components."""
 
-from sci.models.sci_model import SCITinyLlama
+from sci.models.sci_model import SCIModel
 
-__all__ = ["SCITinyLlama"]
+# Alias for backward compatibility
+SCITinyLlama = SCIModel
+
+__all__ = ["SCIModel", "SCITinyLlama"]

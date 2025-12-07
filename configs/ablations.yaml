@@ -1,0 +1,198 @@
+# Ablation Study Configurations
+# Required by: SCI_ENGINEERING_STANDARDS.md Section 7.1
+
+ablations:
+  # Full SCI (baseline for ablation comparison)
+  - name: "sci_full"
+    description: "Full SCI with all components"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: true
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "sci_full", "scan_length"]
+
+  # Ablate AbstractionLayer
+  - name: "no_abstraction_layer"
+    description: "SCI without AbstractionLayer (direct input to SE)"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+          abstraction_layer:
+            enabled: false  # ABLATED
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: true
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "no_abstraction_layer", "scan_length"]
+
+  # Ablate SCL
+  - name: "no_scl"
+    description: "SCI without Structural Contrastive Learning"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: true
+      loss:
+        scl_weight: 0.0  # ABLATED
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "no_scl", "scan_length"]
+
+  # Ablate Content Encoder
+  - name: "no_content_encoder"
+    description: "SCI without Content Encoder (structure only)"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+        content_encoder:
+          enabled: false  # ABLATED
+        causal_binding:
+          enabled: true
+          # CBM modified to work with structure only
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.0  # N/A without CE
+      logging:
+        wandb_tags: ["ablation", "no_content_encoder", "scan_length"]
+
+  # Ablate CBM
+  - name: "no_cbm"
+    description: "SCI without Causal Binding (simple concatenation)"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: false  # ABLATED
+          # Replaced with simple concatenation
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "no_cbm", "scan_length"]
+
+  # Ablate GNN
+  - name: "no_gnn"
+    description: "SCI without GNN (no causal graph reasoning)"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+          gnn:
+            enabled: false  # ABLATED
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: true
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "no_gnn", "scan_length"]
+
+  # Ablate orthogonality
+  - name: "no_orthogonality"
+    description: "SCI without orthogonality constraint"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+        content_encoder:
+          enabled: true
+          use_orthogonal_projection: false
+        causal_binding:
+          enabled: true
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.0  # ABLATED
+      logging:
+        wandb_tags: ["ablation", "no_orthogonality", "scan_length"]
+
+  # Ablate Slot Attention
+  - name: "no_slot_attention"
+    description: "SCI without slot attention pooling (mean pooling instead)"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+          slot_attention:
+            enabled: false  # Use mean pooling instead
+            num_iterations: 0
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: true
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "no_slot_attention", "scan_length"]
+
+  # Ablate Causal Intervention
+  - name: "no_causal_intervention"
+    description: "SCI without causal intervention in CBM"
+    base_config: "configs/sci_full.yaml"
+    overrides:
+      model:
+        structural_encoder:
+          enabled: true
+        content_encoder:
+          enabled: true
+        causal_binding:
+          enabled: true
+          use_causal_intervention: false  # ABLATED
+      loss:
+        scl_weight: 0.3
+        ortho_weight: 0.1
+      logging:
+        wandb_tags: ["ablation", "no_causal_intervention", "scan_length"]
+
+# Expected ablation results (approximate)
+# These are predictions based on component importance
+expected_ablation_results:
+  sci_full:
+    length_ood: 0.85  # Full model target
+  no_abstraction_layer:
+    length_ood: 0.65  # -20% (critical component)
+  no_scl:
+    length_ood: 0.72  # -13% (important for structural learning)
+  no_content_encoder:
+    length_ood: 0.55  # -30% (content binding is critical)
+  no_cbm:
+    length_ood: 0.40  # -45% (core innovation)
+  no_gnn:
+    length_ood: 0.75  # -10% (helps but not critical for SCAN)
+  no_orthogonality:
+    length_ood: 0.78  # -7% (regularization benefit)
+  no_slot_attention:
+    length_ood: 0.70  # -15% (important for slot-based reasoning)
+  no_causal_intervention:
+    length_ood: 0.77  # -8% (helps with causal reasoning)

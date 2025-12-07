@@ -1,0 +1,31 @@
+Metadata-Version: 2.4
+Name: sci
+Version: 0.1.0
+Summary: Structural Causal Invariance for Compositional Generalization
+Author: SCI Research Team
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Requires-Python: >=3.9
+Requires-Dist: torch>=2.0.0
+Requires-Dist: transformers>=4.35.2
+Requires-Dist: datasets>=2.14.0
+Requires-Dist: wandb>=0.16.0
+Requires-Dist: pytest>=7.4.0
+Requires-Dist: pytest-cov>=4.1.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: tqdm>=4.66.0
+Requires-Dist: matplotlib>=3.8.0
+Requires-Dist: seaborn>=0.13.0
+Requires-Dist: pandas>=2.1.0
+Requires-Dist: scikit-learn>=1.3.0
+Requires-Dist: tensorboard>=2.15.0
+Requires-Dist: einops>=0.7.0
+Requires-Dist: accelerate>=0.20.0
+Dynamic: author
+Dynamic: classifier
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

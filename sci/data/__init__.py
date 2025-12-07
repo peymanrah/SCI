@@ -1,11 +1,9 @@
 """Data loading and preprocessing."""
 
-from sci.data.scan_dataset import SCANDataset
-from sci.data.pair_generator import SCLPairGenerator
-from sci.data.data_collator import SCIDataCollator
+from sci.data.datasets.scan_dataset import SCANDataset
+from sci.data.pair_generators.scan_pair_generator import SCANPairGenerator
 
 __all__ = [
     "SCANDataset",
-    "SCLPairGenerator",
-    "SCIDataCollator",
+    "SCANPairGenerator",
 ]

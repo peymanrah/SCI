@@ -66,6 +66,10 @@ class SlotAttention(nn.Module):
         self.slots_mu = nn.Parameter(torch.randn(1, 1, d_model))
         self.slots_log_sigma = nn.Parameter(torch.zeros(1, 1, d_model))
 
+        # Also create slot_queries for compatibility with tests
+        # These are initialized slot representations that get refined
+        self.slot_queries = nn.Parameter(torch.randn(num_slots, d_model) * 0.1)
+
         # Layer norm for inputs and slots
         self.norm_inputs = nn.LayerNorm(d_model)
         self.norm_slots = nn.LayerNorm(d_model)
@@ -91,7 +95,7 @@ class SlotAttention(nn.Module):
 
     def initialize_slots(self, batch_size: int, device: torch.device) -> torch.Tensor:
         """
-        Initialize slots with random values.
+        Initialize slots with slot_queries (learnable parameters).
 
         Args:
             batch_size: Batch size
@@ -100,12 +104,15 @@ class SlotAttention(nn.Module):
         Returns:
             slots: [batch_size, num_slots, d_model]
         """
-        # Sample from Gaussian
-        mu = self.slots_mu.expand(batch_size, self.num_slots, -1)
-        sigma = self.slots_log_sigma.exp().expand(batch_size, self.num_slots, -1)
+        # Use slot_queries as the base initialization
+        # This ensures slot_queries gets gradients during training
+        slots = self.slot_queries.unsqueeze(0).expand(batch_size, -1, -1)
 
-        # Add noise for initialization
-        slots = mu + sigma * torch.randn_like(mu)
+        # Add noise for initialization (only in training mode)
+        if self.training:
+            # Add small Gaussian noise based on slots_log_sigma
+            sigma = self.slots_log_sigma.exp().expand(batch_size, self.num_slots, -1)
+            slots = slots + sigma * torch.randn_like(slots)
 
         return slots
 

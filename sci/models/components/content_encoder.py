@@ -60,8 +60,11 @@ class ContentEncoder(nn.Module):
             base=config.model.position_encoding.base,
         )
 
-        # Input projection
-        self.input_projection = nn.Linear(self.d_model, self.d_model)
+        # Input projection (from embedding dim to encoder d_model)
+        # Default to identity projection, will be replaced if dimensions differ
+        self.embedding_dim = self.d_model
+        self.input_projection = nn.Identity()
+        self._projection_initialized = False
 
         # Lightweight transformer layers (only 2 layers)
         # REASONING: Content is already well-represented in shared embeddings
@@ -92,7 +95,7 @@ class ContentEncoder(nn.Module):
 
         # Orthogonal projection (optional, can also use loss-based orthogonality)
         # This projects content to be orthogonal to structure
-        self.use_orthogonal_projection = config.model.content_encoder.get("use_orthogonal_projection", False)
+        self.use_orthogonal_projection = getattr(config.model.content_encoder, "use_orthogonal_projection", False)
         if self.use_orthogonal_projection:
             self.orthogonal_proj = nn.Linear(self.d_model, self.d_model)
 
@@ -121,7 +124,7 @@ class ContentEncoder(nn.Module):
     ) -> torch.Tensor:
         """Max pooling over valid tokens."""
         # Mask invalid positions with -inf
-        mask_expanded = attention_mask.unsqueeze(-1).float()
+        mask_expanded = attention_mask.unsqueeze(-1).expand_as(hidden_states).float()
         hidden_masked = hidden_states.clone()
         hidden_masked[mask_expanded == 0] = float('-inf')
 
@@ -155,18 +158,28 @@ class ContentEncoder(nn.Module):
         # Get embeddings
         # CRITICAL: Use shared embeddings
         assert self.embedding is not None, "CRITICAL: Shared embedding not set!"
-        hidden_states = self.embedding(input_ids)
+        hidden_states = self.embedding(input_ids)  # [batch, seq_len, embedding_dim]
+
+        # Create input projection if dimensions differ and not yet initialized
+        if not self._projection_initialized:
+            self.embedding_dim = hidden_states.shape[-1]
+            if self.embedding_dim != self.d_model:
+                self.input_projection = nn.Linear(self.embedding_dim, self.d_model).to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype
+                )
+            self._projection_initialized = True
 
         # Project to encoder dimension
-        hidden_states = self.input_projection(hidden_states)
+        hidden_states = self.input_projection(hidden_states)  # [batch, seq_len, d_model]
 
-        # Apply rotary positional encoding
-        hidden_states = self.pos_encoding(hidden_states)
-
-        # CRITICAL: Apply instruction mask to prevent data leakage
+        # CRITICAL: Apply instruction mask BEFORE positional encoding to prevent data leakage
         if instruction_mask is not None:
             mask_expanded = instruction_mask.unsqueeze(-1).float()
             hidden_states = hidden_states * mask_expanded
+
+        # Apply rotary positional encoding
+        hidden_states = self.pos_encoding(hidden_states)
 
         # Create attention mask
         if attention_mask is None:
@@ -222,15 +235,12 @@ def compute_orthogonality_loss(
     structural_norm = F.normalize(structural_repr, dim=-1)
     content_norm = F.normalize(content_repr, dim=-1)
 
-    # Compute inner product (should be close to 0 for orthogonal vectors)
-    # Shape: [batch_size, batch_size] (pairwise dot products)
-    inner_product = torch.matmul(structural_norm, content_norm.T)
+    # Compute per-sample inner product (should be close to 0 for orthogonal vectors)
+    # Element-wise dot product within each sample: [batch_size]
+    inner_product = (structural_norm * content_norm).sum(dim=-1)
 
-    # Frobenius norm squared (sum of squared elements)
-    ortho_loss = torch.norm(inner_product, p='fro') ** 2
-
-    # Normalize by batch size
-    ortho_loss = ortho_loss / structural_repr.shape[0]
+    # Loss is mean absolute value (penalize both positive and negative correlation)
+    ortho_loss = inner_product.abs().mean()
 
     return lambda_ortho * ortho_loss
 

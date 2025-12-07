@@ -38,7 +38,23 @@ class StructuralContrastiveLoss(nn.Module):
     """
 
     def __init__(self, temperature: float = 0.07, lambda_weight: float = 0.3):
+        """
+        Initialize Structural Contrastive Learning loss.
+
+        Args:
+            temperature: LOW #75: Temperature parameter for contrastive loss (default: 0.07)
+                        - Controls the sharpness of the similarity distribution
+                        - Lower values (0.05-0.1) make the model more selective
+                        - Higher values (0.5+) soften the distribution
+                        - Typical range: 0.05-0.2 for structural learning
+            lambda_weight: Weight for balancing positive/negative terms
+        """
         super().__init__()
+
+        # HIGH #47: Validate temperature boundary
+        assert temperature > 0, \
+            f"temperature must be positive, got {temperature}"
+
         self.temperature = temperature
         self.lambda_weight = lambda_weight
 
@@ -54,7 +70,11 @@ class StructuralContrastiveLoss(nn.Module):
         Args:
             structural_repr_i: [batch, num_slots, d_model] or [batch, d_model]
             structural_repr_j: [batch, num_slots, d_model] or [batch, d_model]
-            pair_labels: [batch, batch] where 1 = same structure, 0 = different
+            pair_labels: LOW #80: [batch, batch] binary matrix where:
+                        - pair_labels[i,j] = 1 if samples i and j have same structure
+                        - pair_labels[i,j] = 0 if samples i and j have different structure
+                        - Diagonal should be 1 (sample is identical to itself)
+                        - Matrix is symmetric: pair_labels[i,j] = pair_labels[j,i]
 
         Returns:
             loss: Scalar contrastive loss

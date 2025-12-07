@@ -89,12 +89,13 @@ class SCANPairGenerator:
 
             # Verify cache matches current commands
             if cache_data['num_examples'] == len(commands):
-                print(f"✓ Loaded {cache_data['num_examples']} examples with {cache_data['num_positive_pairs']} positive pairs")
+                print(f"[OK] Loaded {cache_data['num_examples']} examples with {cache_data['num_positive_pairs']} positive pairs")
                 self.pair_matrix = cache_data['pair_matrix']
                 self.structure_templates = cache_data['structure_templates']
                 self.structure_indices = cache_data['structure_indices']
                 self.cache_metadata = cache_data['metadata']
-                return self.pair_matrix
+                # CRITICAL #12: Ensure consistent torch.Tensor return type
+                return torch.from_numpy(self.pair_matrix).long() if isinstance(self.pair_matrix, np.ndarray) else self.pair_matrix
             else:
                 print(f"Cache size mismatch. Regenerating...")
 
@@ -173,14 +174,17 @@ class SCANPairGenerator:
             'structure_templates': templates,
             'structure_indices': structure_groups,
             'metadata': metadata,
+            'num_examples': metadata['num_examples'],
+            'num_positive_pairs': metadata['num_positive_pairs'],
         }
 
         with open(cache_path, 'wb') as f:
             pickle.dump(cache_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-        print(f"✓ Pairs cached successfully")
+        print(f"[OK] Pairs cached successfully")
 
-        return pair_matrix
+        # CRITICAL #12: Ensure consistent torch.Tensor return type
+        return torch.from_numpy(pair_matrix).long()
 
     def get_batch_pair_labels(
         self,
@@ -425,12 +429,12 @@ if __name__ == "__main__":
     )
 
     assert np.array_equal(pair_matrix, pair_matrix2), "Cache mismatch!"
-    print("✓ Cache loaded successfully and matches original")
+    print("[OK] Cache loaded successfully and matches original")
 
     # Cleanup test cache
     import shutil
     if os.path.exists(".test_cache"):
         shutil.rmtree(".test_cache")
-        print("✓ Test cache cleaned up")
+        print("[OK] Test cache cleaned up")
 
-    print("\n✓ All SCAN pair generator tests passed!")
+    print("\n[OK] All SCAN pair generator tests passed!")

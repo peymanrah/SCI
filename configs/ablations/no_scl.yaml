@@ -34,16 +34,22 @@ training:
   batch_size: 32
   max_epochs: 50
   learning_rate: 2e-5
+  sci_learning_rate: 5e-5  # ADDED
   fp16: true
   checkpoint_dir: "checkpoints/ablation_no_scl"
 
 loss:
   lm_weight: 1.0
   scl_weight: 0.0  # DISABLED
-  ortho_weight: 0.01
+  ortho_weight: 0.1  # FIXED
 
 evaluation:
   batch_size: 64
+  max_generation_length: 300  # ADDED
+  num_beams: 1
+  do_sample: false
+  repetition_penalty: 1.0
+  length_penalty: 1.0
   datasets:
     - {name: "scan", split: "length", subset: "test"}
 

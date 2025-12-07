@@ -102,6 +102,13 @@ class RotaryPositionalEncoding(nn.Module):
             self._precompute_freqs_cis(seq_len)
 
         # Get frequencies for current sequence length
+        # CRITICAL #21: Add helpful error message for sequence length overflow
+        if seq_len > self.max_length:
+            raise ValueError(
+                f"Sequence length ({seq_len}) exceeds maximum supported length ({self.max_length}). "
+                f"Increase max_length in PositionalEncodingConfig or reduce input sequence length."
+            )
+
         # freqs_cis: [seq_len, d_model // 2]
         freqs_cis = self.freqs_cis[:seq_len]
 

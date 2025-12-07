@@ -16,6 +16,7 @@ CRITICAL IMPLEMENTATION NOTES:
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Dict, Optional, Tuple, List
 from transformers import (
     AutoModelForCausalLM,
@@ -46,7 +47,7 @@ class SCIModel(nn.Module):
 
     Example config structure:
         model:
-            base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+            base_model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
             structural_encoder:
                 enabled: true
                 num_slots: 8
@@ -68,15 +69,15 @@ class SCIModel(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Load base TinyLlama model
-        print(f"Loading base model: {config.model.base_model}")
+        print(f"Loading base model: {config.model.base_model_name}")
         self.base_model = AutoModelForCausalLM.from_pretrained(
-            config.model.base_model,
-            torch_dtype=torch.float16 if config.training.fp16 else torch.float32,
+            config.model.base_model_name,
+            torch_dtype=torch.float16 if config.training.mixed_precision else torch.float32,
             device_map='auto' if torch.cuda.is_available() else None,
         )
 
         # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model.base_model)
+        self.tokenizer = AutoTokenizer.from_pretrained(config.model.base_model_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -86,6 +87,23 @@ class SCIModel(nn.Module):
         self.num_layers = self.base_model.config.num_hidden_layers  # 22 layers
 
         print(f"Model dimensions: d_model={self.d_model}, vocab_size={self.vocab_size}, num_layers={self.num_layers}")
+
+        # HIGH #24: Add base_model compatibility checks
+        assert hasattr(self.base_model, 'model'), \
+            f"Base model must have 'model' attribute (got type: {type(self.base_model).__name__})"
+        assert hasattr(self.base_model.model, 'layers'), \
+            f"Base model must have transformer layers at model.layers"
+
+        # Validate CBM injection layers are within bounds
+        # Check both attribute name formats for compatibility
+        cbm_enabled = getattr(config.model.causal_binding, 'enable_causal_intervention',
+                             getattr(config.model.causal_binding, 'enabled', False))
+        if cbm_enabled and len(config.model.causal_binding.injection_layers) > 0:
+            max_injection_layer = max(config.model.causal_binding.injection_layers)
+            assert max_injection_layer < self.num_layers, \
+                f"CBM injection layer {max_injection_layer} exceeds model layers (max: {self.num_layers-1})"
+
+        print(f"✓ Base model compatibility validated")
 
         # Get shared embedding layer from TinyLlama
         self.shared_embedding = self.base_model.get_input_embeddings()
@@ -100,6 +118,9 @@ class SCIModel(nn.Module):
         self.current_structural_slots = None
         self.current_structural_scores = None
         self.current_content_repr = None
+        # CRITICAL #11: edge_weights initialization
+        # Currently set to None (GNN feature not implemented)
+        # When GNN is added, this will store graph edge weights [batch, num_slots, num_slots]
         self.current_edge_weights = None
         self.current_instruction_mask = None
 
@@ -112,6 +133,8 @@ class SCIModel(nn.Module):
             self.structural_encoder = StructuralEncoder(self.config)
             # Share embedding with TinyLlama
             self.structural_encoder.embedding = self.shared_embedding
+            # Move to same device as base model
+            self.structural_encoder = self.structural_encoder.to(self.device)
             print(f"  - Num slots: {self.structural_encoder.num_slots}")
             print(f"  - Abstraction layers at: {self.structural_encoder.injection_layers}")
         else:
@@ -124,6 +147,8 @@ class SCIModel(nn.Module):
             self.content_encoder = ContentEncoder(self.config)
             # Share embedding with TinyLlama
             self.content_encoder.embedding = self.shared_embedding
+            # Move to same device as base model
+            self.content_encoder = self.content_encoder.to(self.device)
             print(f"  - Num layers: {self.content_encoder.num_layers}")
             print(f"  - Pooling: {self.content_encoder.pooling}")
         else:
@@ -134,6 +159,8 @@ class SCIModel(nn.Module):
         if self.config.model.causal_binding.enabled:
             print("Initializing Causal Binding Mechanism...")
             self.causal_binding = CausalBindingMechanism(self.config)
+            # Move to same device as base model
+            self.causal_binding = self.causal_binding.to(self.device)
             self.cbm_injection_layers = self.config.model.causal_binding.injection_layers
             print(f"  - Injection layers: {self.cbm_injection_layers}")
             print(f"  - Num heads: {self.causal_binding.num_heads}")
@@ -141,6 +168,14 @@ class SCIModel(nn.Module):
             self.causal_binding = None
             self.cbm_injection_layers = []
             print("Causal Binding Mechanism DISABLED (ablation mode)")
+
+        # LOW #74: Log total model parameters
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(f"\n✓ Model initialization complete:")
+        print(f"  Total parameters: {total_params:,}")
+        print(f"  Trainable parameters: {trainable_params:,}")
+        print(f"  Non-trainable parameters: {total_params - trainable_params:,}")
 
     def _register_cbm_hooks(self):
         """
@@ -159,8 +194,9 @@ class SCIModel(nn.Module):
         def make_hook(layer_idx):
             """Create a hook function for a specific layer."""
             def hook(module, input, output):
-                # output is a tuple: (hidden_states, ...)
-                hidden_states = output[0]  # [batch_size, seq_len, d_model]
+                # TinyLlama decoder layers return a plain tensor (not a tuple)
+                # Output is always 3D: [batch_size, seq_len, d_model]
+                hidden_states = output
 
                 # Only apply CBM if we have structural and content representations
                 if (self.current_structural_slots is not None and
@@ -168,6 +204,13 @@ class SCIModel(nn.Module):
 
                     # Apply Causal Binding Mechanism
                     try:
+                        # Ensure hidden_states is 3D
+                        if hidden_states.dim() != 3:
+                            print(f"Warning: Expected 3D hidden_states at layer {layer_idx}, got {hidden_states.dim()}D")
+                            return output
+
+                        batch_size, seq_len, d_model = hidden_states.shape
+
                         # Step 1: Bind content to structural slots
                         bound_repr, _ = self.causal_binding.bind(
                             structural_slots=self.current_structural_slots,
@@ -178,7 +221,7 @@ class SCIModel(nn.Module):
                         # Step 2: Broadcast to sequence length
                         broadcast_repr = self.causal_binding.broadcast(
                             bound_slots=bound_repr,
-                            seq_len=hidden_states.shape[1],
+                            seq_len=seq_len,
                         )
 
                         # Step 3: Inject into decoder hidden states
@@ -188,10 +231,17 @@ class SCIModel(nn.Module):
                             layer_idx=layer_idx,
                         )
 
-                        # Return modified output tuple
-                        return (injected_hidden,) + output[1:]
+                        # Ensure output dtype matches input dtype (important for fp16)
+                        if injected_hidden.dtype != hidden_states.dtype:
+                            injected_hidden = injected_hidden.to(hidden_states.dtype)
+
+                        # Return in the same format as received (plain tensor)
+                        return injected_hidden
+
                     except Exception as e:
                         print(f"Warning: CBM injection failed at layer {layer_idx}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         return output
 
                 return output
@@ -261,6 +311,12 @@ class SCIModel(nn.Module):
                 - hidden_states: Decoder hidden states (if requested)
         """
         batch_size, seq_len = input_ids.shape
+
+        # Move inputs to model device
+        input_ids = input_ids.to(self.device)
+        attention_mask = attention_mask.to(self.device)
+        if labels is not None:
+            labels = labels.to(self.device)
 
         # ============================================================
         # STEP 1: Extract instruction mask (CRITICAL for no leakage)

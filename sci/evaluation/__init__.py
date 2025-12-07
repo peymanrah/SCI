@@ -1,10 +1,5 @@
-"""Evaluation and metrics."""
+"""Evaluation utilities for SCI."""
 
-from sci.evaluation.evaluator import SCIEvaluator
-from sci.evaluation.metrics import exact_match_accuracy, structural_invariance_score
+from sci.evaluation.scan_evaluator import SCANEvaluator
 
-__all__ = [
-    "SCIEvaluator",
-    "exact_match_accuracy",
-    "structural_invariance_score",
-]
+__all__ = ['SCANEvaluator']

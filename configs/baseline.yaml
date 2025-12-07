@@ -77,9 +77,11 @@ evaluation:
       split: "simple"
       subset: "test"
 
-  max_generation_length: 128
-  num_beams: 1
+  max_generation_length: 300   # FIXED: Increased from 128 to 300 (SCAN length needs >=288)
+  num_beams: 1                 # Greedy decoding
   do_sample: false
+  repetition_penalty: 1.0      # ADDED: Explicit (no penalty)
+  length_penalty: 1.0          # ADDED: Explicit (no penalty)
 
   compute_exact_match: true
   compute_structural_invariance: false  # N/A for baseline

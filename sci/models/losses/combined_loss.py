@@ -300,16 +300,28 @@ class HardNegativeMiner:
         negative_similarities = similarity.clone()
         negative_similarities[~negative_mask] = -float('inf')
 
+        # CRITICAL #10: Add bounds checking for hard negative mining
         # For each anchor, select top-k hardest negatives
-        num_hard = max(1, int(negative_mask.sum(dim=1).float().mean().item() * self.hard_negative_ratio))
+        num_negatives_per_sample = negative_mask.sum(dim=1)
+        avg_negatives = num_negatives_per_sample.float().mean().item()
 
-        # Get top-k most similar negatives per row
-        _, hard_indices = torch.topk(negative_similarities, k=num_hard, dim=1)
+        # Compute number of hard negatives, clamped to available negatives
+        num_hard = max(1, int(avg_negatives * self.hard_negative_ratio))
 
         # Create hard negative mask
         hard_negative_mask = torch.zeros_like(pair_labels, dtype=torch.bool)
+
         for i in range(batch_size):
-            hard_negative_mask[i, hard_indices[i]] = True
+            # Get number of available negatives for this sample
+            num_available = num_negatives_per_sample[i].item()
+
+            if num_available > 0:
+                # Clamp k to not exceed available negatives
+                k = min(num_hard, num_available)
+
+                # Get top-k most similar negatives for this row
+                _, hard_indices = torch.topk(negative_similarities[i], k=k, dim=0)
+                hard_negative_mask[i, hard_indices] = True
 
         return hard_negative_mask.long()
 

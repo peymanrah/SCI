@@ -166,23 +166,30 @@ class TestDataLeakagePrevention:
     def test_labels_correctly_mask_instruction(self):
         """Test that -100 in labels correctly masks instruction tokens."""
         from sci.data.datasets.scan_dataset import SCANDataset
+        from sci.data.scan_data_collator import SCANDataCollator
         from transformers import AutoTokenizer
+        from torch.utils.data import DataLoader
 
         tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        # Create dataset
+        # Create dataset (returns raw strings, not tokenized)
         dataset = SCANDataset(
-            tokenizer=tokenizer,
-            split_name="length",
-            subset="train",
-            max_length=128,
+            tokenizer=tokenizer,  # Required argument
+            split_name='length',
+            subset='train',
         )
 
-        # Get an example
-        example = dataset[0]
-        labels = example['labels']
+        # Create collator to tokenize and create labels
+        collator = SCANDataCollator(tokenizer=tokenizer, max_length=128)
+
+        # Create dataloader with batch_size=1 to get a single example
+        loader = DataLoader(dataset, batch_size=1, collate_fn=collator)
+
+        # Get first batch
+        batch = next(iter(loader))
+        labels = batch['labels'][0]  # First (and only) example in batch
 
         # Check that some tokens are masked with -100
         num_masked = (labels == -100).sum().item()

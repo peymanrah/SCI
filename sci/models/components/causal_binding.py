@@ -46,7 +46,7 @@ class CausalBindingMechanism(nn.Module):
         super().__init__()
 
         # Configuration
-        self.d_model = config.model.causal_binding.get('d_model', 2048)  # TinyLlama dimension
+        self.d_model = getattr(config.model.causal_binding, 'd_model', 2048)  # TinyLlama dimension
         self.num_heads = config.model.causal_binding.num_heads
         self.dropout = config.model.causal_binding.dropout
         self.injection_layers = config.model.causal_binding.injection_layers
@@ -56,6 +56,12 @@ class CausalBindingMechanism(nn.Module):
             f"d_model ({self.d_model}) must be divisible by num_heads ({self.num_heads})"
         self.head_dim = self.d_model // self.num_heads
 
+        # Input projections (for structural/content encoders with different d_model)
+        # These will be initialized dynamically when first used
+        self.structural_projection = None
+        self.content_projection = None
+        self._projections_initialized = False
+
         # 1. BINDING ATTENTION
         # Cross-attention: Query from structural slots, Key/Value from content
         self.binding_query = nn.Linear(self.d_model, self.d_model)
@@ -63,14 +69,14 @@ class CausalBindingMechanism(nn.Module):
         self.binding_value = nn.Linear(self.d_model, self.d_model)
         self.binding_out = nn.Linear(self.d_model, self.d_model)
 
-        self.binding_dropout = nn.Dropout(dropout)
+        self.binding_dropout = nn.Dropout(self.dropout)
 
         # Layer norm for stability
         self.binding_norm = nn.LayerNorm(self.d_model)
 
         # 2. CAUSAL INTERVENTION LAYER
         # This applies causal reasoning using edge weights
-        self.use_causal_intervention = config.model.causal_binding.get('use_causal_intervention', True)
+        self.use_causal_intervention = getattr(config.model.causal_binding, 'use_causal_intervention', True)
 
         if self.use_causal_intervention:
             # Message passing network for causal intervention
@@ -90,6 +96,9 @@ class CausalBindingMechanism(nn.Module):
 
         self.broadcast_norm = nn.LayerNorm(self.d_model)
 
+        # Learned position queries for broadcast (max_seq_len=512)
+        self.position_queries = nn.Parameter(torch.randn(1, 512, self.d_model) * 0.02)
+
         # Injection adapters for each decoder layer
         # These prepare the bound representation for injection
         self.adapters = nn.ModuleDict({
@@ -97,7 +106,7 @@ class CausalBindingMechanism(nn.Module):
                 nn.Linear(self.d_model * 2, self.d_model),  # Concatenate with decoder hidden
                 nn.LayerNorm(self.d_model),
                 nn.GELU(),
-                nn.Dropout(dropout),
+                nn.Dropout(self.dropout),
                 nn.Linear(self.d_model, self.d_model),
             )
             for layer in self.injection_layers
@@ -186,7 +195,7 @@ class CausalBindingMechanism(nn.Module):
         Bind content to structural slots via cross-attention.
 
         Args:
-            structural_slots: [batch, num_slots, d_model]
+            structural_slots: [batch, num_slots, structural_d_model]
             content_repr: [batch, d_model]
             edge_weights: [batch, num_slots, num_slots] - Optional causal edges
             return_attention: Whether to return attention weights
@@ -195,7 +204,34 @@ class CausalBindingMechanism(nn.Module):
             bound_repr: [batch, num_slots, d_model]
             attn_weights: [batch, num_heads, num_slots, 1] if return_attention
         """
-        batch_size, num_slots, _ = structural_slots.shape
+        batch_size, num_slots, structural_d_model = structural_slots.shape
+        content_d_model = content_repr.shape[-1]
+
+        # Initialize projections if needed
+        if not self._projections_initialized:
+            # Project structural slots if dimension differs
+            if structural_d_model != self.d_model:
+                self.structural_projection = nn.Linear(structural_d_model, self.d_model).to(
+                    device=structural_slots.device,
+                    dtype=structural_slots.dtype
+                )
+            else:
+                self.structural_projection = nn.Identity()
+
+            # Project content if dimension differs
+            if content_d_model != self.d_model:
+                self.content_projection = nn.Linear(content_d_model, self.d_model).to(
+                    device=content_repr.device,
+                    dtype=content_repr.dtype
+                )
+            else:
+                self.content_projection = nn.Identity()
+
+            self._projections_initialized = True
+
+        # Project to CBM d_model
+        structural_slots = self.structural_projection(structural_slots)  # [batch, num_slots, d_model]
+        content_repr = self.content_projection(content_repr)  # [batch, d_model]
 
         # Expand content to enable cross-attention
         # [batch, d_model] -> [batch, 1, d_model]
@@ -233,18 +269,17 @@ class CausalBindingMechanism(nn.Module):
             )
 
             # Weight messages by edge_weights
-            # edge_weights: [batch, num_slots, num_slots] where [i, j] is edge from i to j
-            # Expand for broadcasting: [batch, num_slots, num_slots, 1]
-            edge_weights_expanded = edge_weights.unsqueeze(-1)
+            # edge_weights: [batch, num_slots, num_slots] where [i, j] is edge from slot j to slot i
+            # messages: [batch, num_slots, d_model] - each slot sends a message
+            # Expand for broadcasting:
+            # edge_weights: [batch, num_slots, num_slots, 1] (target, source, 1)
+            # messages: [batch, 1, num_slots, d_model] (1, source, d_model)
+            edge_weights_expanded = edge_weights.unsqueeze(-1)  # [batch, num_slots, num_slots, 1]
+            messages_expanded = messages.unsqueeze(1)  # [batch, 1, num_slots, d_model]
 
-            # Apply edge weights to messages
-            # messages: [batch, num_slots, d_model]
-            # Expand to: [batch, num_slots, 1, d_model] for broadcasting
-            messages_expanded = messages.unsqueeze(2)
-
-            # Weighted sum over source slots
+            # Weighted sum over source slots (dim=2)
             # [batch, num_slots, num_slots, d_model] -> [batch, num_slots, d_model]
-            intervention = (edge_weights_expanded * messages_expanded).sum(dim=1)
+            intervention = (edge_weights_expanded * messages_expanded).sum(dim=2)
 
             # Residual connection and normalization
             bound_repr = self.intervention_norm(bound_repr + intervention)
@@ -282,16 +317,8 @@ class CausalBindingMechanism(nn.Module):
         # Create position indices
         positions = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
 
-        # Use a simple learned position embedding
-        # Initialize if not exists (this is a bit hacky, but works for now)
-        if not hasattr(self, 'position_queries'):
-            self.register_buffer(
-                'position_queries',
-                torch.randn(1, 512, d_model, device=device) * 0.02
-            )
-
-        # Get position queries (clip to seq_len)
-        pos_queries = self.position_queries[:, :seq_len, :].expand(batch_size, -1, -1)
+        # Get position queries (clip to seq_len and move to correct device)
+        pos_queries = self.position_queries[:, :seq_len, :].to(device).expand(batch_size, -1, -1)
 
         # Broadcast attention: position queries attend to bound slots
         broadcast_repr, _ = self._multihead_attention(
@@ -332,12 +359,40 @@ class CausalBindingMechanism(nn.Module):
         if layer_idx not in self.injection_layers:
             return decoder_hidden
 
-        # Ensure bound_repr matches decoder sequence length
-        if bound_repr.shape[1] != decoder_hidden.shape[1]:
-            # Re-broadcast if needed
-            bound_repr = self.broadcast(
-                bound_repr if bound_repr.dim() == 3 and bound_repr.shape[1] <= 10 else bound_repr[:, :1, :],
-                decoder_hidden.shape[1]
+        # Ensure bound_repr is 3D [batch, seq_len, d_model]
+        if bound_repr.dim() == 2:
+            # If 2D [batch, d_model], unsqueeze and expand
+            bound_repr = bound_repr.unsqueeze(1).expand(-1, decoder_hidden.shape[1], -1)
+        elif bound_repr.dim() == 3:
+            if bound_repr.shape[1] != decoder_hidden.shape[1]:
+                # Re-broadcast if seq_len doesn't match
+                # Determine if we have bound_slots [batch, num_slots, d_model] or already broadcast
+                if bound_repr.shape[1] <= 10:  # Likely num_slots
+                    bound_repr = self.broadcast(
+                        bound_slots=bound_repr,
+                        seq_len=decoder_hidden.shape[1]
+                    )
+                else:
+                    # CRITICAL #15: Fix incorrect slice in broadcast injection
+                    # Already broadcast but different seq_len - just slice or pad
+                    if bound_repr.shape[1] > decoder_hidden.shape[1]:
+                        # Keep the LAST tokens (most recent in autoregressive generation)
+                        bound_repr = bound_repr[:, -decoder_hidden.shape[1]:, :]
+                    else:
+                        # Pad with zeros at the end
+                        padding = decoder_hidden.shape[1] - bound_repr.shape[1]
+                        bound_repr = torch.cat([
+                            bound_repr,
+                            torch.zeros(bound_repr.shape[0], padding, bound_repr.shape[2], device=bound_repr.device)
+                        ], dim=1)
+        else:
+            raise ValueError(f"bound_repr must be 2D or 3D, got {bound_repr.dim()}D with shape {bound_repr.shape}")
+
+        # Final safety check before concatenation
+        if bound_repr.dim() != 3 or decoder_hidden.dim() != 3:
+            raise ValueError(
+                f"Dimension mismatch before concat: "
+                f"decoder_hidden.shape={decoder_hidden.shape}, bound_repr.shape={bound_repr.shape}"
             )
 
         # Concatenate decoder hidden and bound representation

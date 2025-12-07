@@ -51,7 +51,7 @@ class SCANDataset(Dataset):
         split_name: str = "length",
         subset: str = "train",
         max_length: int = 128,
-        cache_dir: str = ".cache/scan",
+        cache_dir: str = ".cache/scan",  # MEDIUM #56: Configurable cache directory
         force_regenerate_pairs: bool = False,
     ):
         self.tokenizer = tokenizer
@@ -105,6 +105,10 @@ class SCANDataset(Dataset):
             force_regenerate=force_regenerate_pairs,
         )
 
+        # CRITICAL #17: Verify pair matrix is symmetric
+        assert torch.allclose(self.pair_matrix, self.pair_matrix.t()), \
+            "Pair matrix must be symmetric (pair_matrix[i,j] == pair_matrix[j,i])"
+
         print(f"✓ SCAN dataset ready: {len(self)} examples")
 
     def _create_dummy_data(self):
@@ -121,59 +125,24 @@ class SCANDataset(Dataset):
     def __len__(self) -> int:
         return len(self.commands)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Dict:
         """
         Get a single example.
 
         Returns:
             Dictionary with:
-                - input_ids: Tokenized input
-                - attention_mask: Attention mask
-                - labels: Tokenized output (with instruction masked as -100)
+                - commands: Raw command string (for collator and pair generation)
+                - actions: Raw action string (for collator)
                 - idx: Dataset index (for pair lookup)
         """
         command = self.commands[idx]
-        output = self.outputs[idx]
+        action = self.outputs[idx]
 
-        # Format as instruction-response pair
-        # Format: "Instruction: {command}\nOutput: {output}"
-        text = f"Instruction: {command}\nOutput: {output}"
-
-        # Tokenize
-        encoding = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.max_length,
-            padding="max_length",
-            return_tensors="pt",
-        )
-
-        input_ids = encoding["input_ids"].squeeze(0)
-        attention_mask = encoding["attention_mask"].squeeze(0)
-
-        # Create labels with instruction masked
-        labels = input_ids.clone()
-
-        # Find where output starts (after "Output: ")
-        # Tokenize instruction part only to find the split point
-        instruction_text = f"Instruction: {command}\nOutput: "
-        instruction_encoding = self.tokenizer(
-            instruction_text,
-            truncation=False,
-            add_special_tokens=False,
-        )
-        instruction_len = len(instruction_encoding["input_ids"])
-
-        # Mask instruction tokens with -100 (not included in loss)
-        labels[:instruction_len] = -100
-
-        # Mask padding tokens
-        labels[attention_mask == 0] = -100
-
+        # CRITICAL #22: Return raw strings for collator to process
+        # This allows proper instruction mask creation in collator
         return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
+            "commands": command,
+            "actions": action,
             "idx": idx,  # Keep index for pair lookup
         }
 
