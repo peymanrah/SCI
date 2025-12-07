@@ -16,7 +16,7 @@ model:
   # Positional Encoding (RoPE for length generalization)
   position_encoding:
     type: "rotary"
-    max_length: 512
+    max_length: 1024  # Support prompt + long outputs (288+ tokens for length split)
     base: 10000
 
   # Structural Encoder - ENABLED

@@ -16,7 +16,8 @@ from tqdm import tqdm
 import numpy as np
 
 from sci.models.sci_model import SCIModel
-from sci.data.datasets.scan_dataset import SCANDataset, SCANCollator
+from sci.data.datasets.scan_dataset import SCANDataset
+from sci.data.scan_data_collator import SCANDataCollator
 
 
 class SCIEvaluator:
@@ -89,12 +90,15 @@ class SCIEvaluator:
         Returns:
             Dictionary with metrics
         """
+        # Get tokenizer from model for decoding
+        tokenizer = model.tokenizer
+        
         # Create data loader (no pair labels needed for evaluation)
         loader = DataLoader(
             dataset,
             batch_size=self.config.evaluation.batch_size,
             shuffle=False,
-            collate_fn=lambda batch: self._collate_eval_batch(batch),
+            collate_fn=lambda batch: self._collate_eval_batch(batch, tokenizer),
             num_workers=0,
         )
 
@@ -163,12 +167,13 @@ class SCIEvaluator:
 
         return metrics
 
-    def _collate_eval_batch(self, batch: List[Dict]) -> Dict:
+    def _collate_eval_batch(self, batch: List[Dict], tokenizer=None) -> Dict:
         """
         Collate batch for evaluation (no pair labels).
 
         Args:
             batch: List of examples
+            tokenizer: Tokenizer for decoding (passed separately)
 
         Returns:
             Batched tensors
@@ -177,15 +182,20 @@ class SCIEvaluator:
         attention_mask = torch.stack([ex['attention_mask'] for ex in batch])
 
         # Extract reference outputs (ground truth)
-        # We need to get the actual output text, not the tokenized version
-        # For now, we'll extract from the dataset directly
+        # Store the raw actions text if available
         references = []
         for ex in batch:
-            # Decode the labels to get reference
-            labels = ex['labels'].clone()
-            labels[labels == -100] = 0  # Replace -100 with pad token for decoding
-            ref_text = self.config.model.tokenizer.decode(labels, skip_special_tokens=True) if hasattr(self.config.model, 'tokenizer') else ""
-            references.append(ref_text)
+            if 'actions' in ex:
+                # Use the raw actions string (preferred)
+                references.append(ex['actions'])
+            elif tokenizer is not None:
+                # Decode the labels to get reference
+                labels = ex['labels'].clone()
+                labels[labels == -100] = tokenizer.pad_token_id  # Replace -100 with pad token for decoding
+                ref_text = tokenizer.decode(labels, skip_special_tokens=True)
+                references.append(ref_text)
+            else:
+                references.append("")
 
         return {
             'input_ids': input_ids,

@@ -274,6 +274,7 @@ class SCIModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         labels: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Extract instruction mask from labels.
@@ -281,17 +282,27 @@ class SCIModel(nn.Module):
         CRITICAL: This prevents data leakage by ensuring SE and CE only see
         the instruction, not the response.
 
-        Convention: labels has -100 for tokens not included in loss (instruction tokens)
+        Convention: labels has -100 for tokens not included in loss (instruction + padding)
+        We need to distinguish instruction from padding using attention_mask.
 
         Args:
             input_ids: [batch_size, seq_len]
-            labels: [batch_size, seq_len] with -100 for instruction tokens
+            labels: [batch_size, seq_len] with -100 for instruction AND padding tokens
+            attention_mask: [batch_size, seq_len] with 1 for valid tokens, 0 for padding
 
         Returns:
-            instruction_mask: [batch_size, seq_len] with 1 for instruction, 0 for response
+            instruction_mask: [batch_size, seq_len] with 1 for instruction, 0 for response/padding
         """
-        # labels == -100 indicates instruction tokens
-        instruction_mask = (labels == -100).long()
+        # labels == -100 indicates instruction OR padding tokens
+        # To get just instruction, we need: (labels == -100) AND (attention_mask == 1)
+        is_masked = (labels == -100)
+        
+        if attention_mask is not None:
+            # Exclude padding: instruction is where labels=-100 AND token is not padding
+            instruction_mask = (is_masked & (attention_mask == 1)).long()
+        else:
+            # Fallback: assume no padding, so all -100 positions are instruction
+            instruction_mask = is_masked.long()
 
         return instruction_mask
 
@@ -345,7 +356,8 @@ class SCIModel(nn.Module):
             # Use explicit instruction_mask from batch (preferred)
             pass  # Already set from parameter
         elif labels is not None:
-            instruction_mask = self.get_instruction_mask(input_ids, labels)
+            # Derive from labels, excluding padding using attention_mask
+            instruction_mask = self.get_instruction_mask(input_ids, labels, attention_mask)
         else:
             # During inference, treat all tokens as instruction
             instruction_mask = attention_mask
@@ -581,11 +593,12 @@ class SCIModel(nn.Module):
 
         # Load config if not provided
         if config is None:
-            with open(os.path.join(load_directory, 'config.json'), 'r') as f:
+            config_path = os.path.join(load_directory, 'config.json')
+            with open(config_path, 'r') as f:
                 config_dict = json.load(f)
-            # Convert to config object (you'll need your config class)
-            from sci.config.config_loader import load_config
-            config = load_config(config_dict)
+            # Convert dict to SCIConfig using _dict_to_config
+            from sci.config.config_loader import _dict_to_config
+            config = _dict_to_config(config_dict)
 
         # Initialize model
         model = cls(config)

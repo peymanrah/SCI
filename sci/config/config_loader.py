@@ -71,7 +71,7 @@ class CausalBindingConfig:
 class PositionalEncodingConfig:
     """Configuration for positional encoding."""
     type: str = "rotary"  # rotary or alibi
-    max_length: int = 512
+    max_length: int = 1024  # Support prompt + long outputs (SCAN length split needs 288+ tokens)
     base: int = 10000  # For RoPE
 
 
