@@ -214,6 +214,7 @@ class LoggingConfig:
     wandb_entity: Optional[str] = None
     wandb_tags: List[str] = field(default_factory=list)
     log_every_n_steps: int = 100
+    log_every: int = 10  # Alias for trainer compatibility (log every N batches)
     checkpoint_every_n_epochs: int = 5
     use_wandb: bool = False  # Default off for local runs
     log_dir: str = "logs"

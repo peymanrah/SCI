@@ -7,6 +7,9 @@ Key Features:
 3. Structural invariance metrics
 4. Support for multiple evaluation datasets
 5. Generation with greedy decoding or beam search
+
+CRITICAL: Uses same prompt format as training (SCANDataCollator) to ensure
+proper comparison between training and evaluation.
 """
 
 import torch
@@ -23,6 +26,8 @@ from sci.data.scan_data_collator import SCANDataCollator
 class SCIEvaluator:
     """
     Evaluator for SCI models on compositional generalization benchmarks.
+    
+    CRITICAL: Uses same data collator as training to ensure prompt format parity.
     """
 
     def __init__(self, config):
@@ -55,12 +60,14 @@ class SCIEvaluator:
             dataset_name = f"{dataset_config['name']}_{dataset_config['split']}"
             print(f"\nEvaluating on {dataset_name}...")
 
-            # Create dataset
+            # Create dataset with proper max_length from config
+            max_length = getattr(self.config.data, 'max_length', 512)
             dataset = SCANDataset(
                 tokenizer=model.tokenizer,
                 split_name=dataset_config['split'],
                 subset=dataset_config.get('subset', 'test'),
-                max_length=getattr(self.config.evaluation, 'max_generation_length', 128),
+                max_length=max_length,
+                cache_dir=getattr(self.config.data, 'pairs_cache_dir', '.cache/scan'),
             )
 
             # Evaluate
@@ -90,15 +97,27 @@ class SCIEvaluator:
         Returns:
             Dictionary with metrics
         """
-        # Get tokenizer from model for decoding
         tokenizer = model.tokenizer
         
-        # Create data loader (no pair labels needed for evaluation)
+        # CRITICAL FIX: Use SCANDataCollator for proper format parity with training
+        # This ensures the instruction format matches what the model was trained on
+        use_chat_template = getattr(self.config.data, 'use_chat_template', False)
+        max_length = getattr(self.config.data, 'max_length', 512)
+        
+        # Create collator matching training format (but without pair generator for eval)
+        collator = SCANDataCollator(
+            tokenizer=tokenizer,
+            max_length=max_length,
+            pair_generator=None,  # No pair labels needed for evaluation
+            use_chat_template=use_chat_template,
+        )
+        
+        # Create data loader
         loader = DataLoader(
             dataset,
             batch_size=self.config.evaluation.batch_size,
             shuffle=False,
-            collate_fn=lambda batch: self._collate_eval_batch(batch, tokenizer),
+            collate_fn=collator,
             num_workers=0,
         )
 
@@ -107,49 +126,86 @@ class SCIEvaluator:
         all_correct_tokens = []
         all_total_tokens = []
 
+        # Get generation settings - use beam_size if num_beams not set
+        num_beams = getattr(self.config.evaluation, 'num_beams', None)
+        if num_beams is None:
+            num_beams = getattr(self.config.evaluation, 'beam_size', 1)
+        
+        max_gen_length = getattr(self.config.evaluation, 'max_generation_length', 512)
+        do_sample = getattr(self.config.evaluation, 'do_sample', False)
+        repetition_penalty = getattr(self.config.evaluation, 'repetition_penalty', 1.0)
+        length_penalty = getattr(self.config.evaluation, 'length_penalty', 1.0)
+
+        # Track batch index for reference lookup
+        example_idx = 0
+
         with torch.no_grad():
             for batch in tqdm(loader, desc=f"Evaluating {dataset_name}"):
-                # Move to device
+                # Extract raw commands for reference lookup
+                commands = batch['commands']
+                batch_size = len(commands)
+                
+                # The collator creates full sequences (instruction + response)
+                # We need to extract just the instruction part for generation
                 input_ids = batch['input_ids'].to(self.device)
                 attention_mask = batch['attention_mask'].to(self.device)
-                references = batch['references']
+                instruction_mask = batch['instruction_mask']
+                
+                # For each example, extract instruction-only tokens and generate
+                for i in range(batch_size):
+                    # Get instruction tokens (where instruction_mask == 1)
+                    inst_mask = instruction_mask[i]
+                    inst_len = inst_mask.sum().item()
+                    
+                    # Extract instruction tokens
+                    inst_ids = input_ids[i, :inst_len].unsqueeze(0)
+                    inst_attn = attention_mask[i, :inst_len].unsqueeze(0)
+                    
+                    # Generate output
+                    generated_ids = model.generate(
+                        input_ids=inst_ids,
+                        attention_mask=inst_attn,
+                        max_length=inst_len + max_gen_length,  # instruction + output
+                        num_beams=num_beams,
+                        do_sample=do_sample,
+                        repetition_penalty=repetition_penalty,
+                        length_penalty=length_penalty,
+                        pad_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                    )
+                    
+                    # Extract generated part (after instruction)
+                    gen_tokens = generated_ids[0, inst_len:]
+                    
+                    # Decode prediction (skip special tokens)
+                    pred_text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+                    
+                    # Get reference from dataset's outputs list
+                    ref_text = dataset.outputs[example_idx] if example_idx < len(dataset.outputs) else ""
+                    
+                    all_predictions.append(pred_text)
+                    all_references.append(ref_text)
 
-                # Generate predictions
-                predictions = self._generate_batch(
-                    model,
-                    input_ids,
-                    attention_mask,
-                )
+                    # Compute token-level accuracy
+                    pred_tokens = pred_text.split()
+                    ref_tokens = ref_text.split()
 
-                # Decode predictions and references
-                pred_texts = [
-                    model.tokenizer.decode(pred, skip_special_tokens=True)
-                    for pred in predictions
-                ]
-
-                all_predictions.extend(pred_texts)
-                all_references.extend(references)
-
-                # Compute token-level accuracy
-                for pred, ref in zip(pred_texts, references):
-                    pred_tokens = pred.split()
-                    ref_tokens = ref.split()
-
-                    # Count correct tokens (up to min length)
                     min_len = min(len(pred_tokens), len(ref_tokens))
                     correct = sum(
                         p == r for p, r in zip(pred_tokens[:min_len], ref_tokens[:min_len])
                     )
 
                     all_correct_tokens.append(correct)
-                    all_total_tokens.append(len(ref_tokens))
+                    all_total_tokens.append(len(ref_tokens) if ref_tokens else 1)
+                    
+                    example_idx += 1
 
         # Compute metrics
         exact_matches = sum(
             pred.strip() == ref.strip()
             for pred, ref in zip(all_predictions, all_references)
         )
-        exact_match_acc = exact_matches / len(all_predictions)
+        exact_match_acc = exact_matches / len(all_predictions) if all_predictions else 0.0
 
         token_acc = sum(all_correct_tokens) / sum(all_total_tokens) if sum(all_total_tokens) > 0 else 0.0
 
@@ -166,130 +222,6 @@ class SCIEvaluator:
             metrics['structural_invariance'] = struct_inv
 
         return metrics
-
-    def _collate_eval_batch(self, batch: List[Dict], tokenizer=None) -> Dict:
-        """
-        Collate batch for evaluation (no pair labels).
-
-        Args:
-            batch: List of examples
-            tokenizer: Tokenizer for decoding (passed separately)
-
-        Returns:
-            Batched tensors
-        """
-        input_ids = torch.stack([ex['input_ids'] for ex in batch])
-        attention_mask = torch.stack([ex['attention_mask'] for ex in batch])
-
-        # Extract reference outputs (ground truth)
-        # Store the raw actions text if available
-        references = []
-        for ex in batch:
-            if 'actions' in ex:
-                # Use the raw actions string (preferred)
-                references.append(ex['actions'])
-            elif tokenizer is not None:
-                # Decode the labels to get reference
-                labels = ex['labels'].clone()
-                labels[labels == -100] = tokenizer.pad_token_id  # Replace -100 with pad token for decoding
-                ref_text = tokenizer.decode(labels, skip_special_tokens=True)
-                references.append(ref_text)
-            else:
-                references.append("")
-
-        return {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'references': references,
-        }
-
-    def _generate_batch(
-        self,
-        model: SCIModel,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-    ) -> List[torch.Tensor]:
-        """
-        Generate predictions for a batch.
-
-        Args:
-            model: Model to use
-            input_ids: Input token IDs
-            attention_mask: Attention mask
-
-        Returns:
-            List of generated token ID sequences
-        """
-        # Extract instruction part (everything before "Output:")
-        # For SCAN format: "Instruction: {cmd}\nOutput: "
-        batch_size = input_ids.shape[0]
-        instruction_inputs = []
-
-        for i in range(batch_size):
-            # Find "Output:" token position
-            tokens = input_ids[i]
-            mask = attention_mask[i]
-
-            # Decode to find "Output:"
-            text = model.tokenizer.decode(tokens[mask == 1], skip_special_tokens=False)
-
-            # Find instruction part
-            if "Output:" in text:
-                instruction_text = text.split("Output:")[0] + "Output:"
-            else:
-                instruction_text = text
-
-            # Re-tokenize instruction only
-            instruction_ids = model.tokenizer(
-                instruction_text,
-                return_tensors='pt',
-                add_special_tokens=True,
-            )['input_ids'].to(self.device)
-
-            instruction_inputs.append(instruction_ids)
-
-        # Pad to same length
-        max_len = max(inp.shape[1] for inp in instruction_inputs)
-        padded_inputs = []
-        padded_masks = []
-
-        for inp in instruction_inputs:
-            padding_len = max_len - inp.shape[1]
-            if padding_len > 0:
-                padded = torch.cat([
-                    inp,
-                    torch.full((1, padding_len), model.tokenizer.pad_token_id, device=self.device)
-                ], dim=1)
-                mask = torch.cat([
-                    torch.ones(1, inp.shape[1], device=self.device),
-                    torch.zeros(1, padding_len, device=self.device)
-                ], dim=1)
-            else:
-                padded = inp
-                mask = torch.ones_like(inp)
-
-            padded_inputs.append(padded)
-            padded_masks.append(mask)
-
-        instruction_ids = torch.cat(padded_inputs, dim=0)
-        instruction_mask = torch.cat(padded_masks, dim=0)
-
-        # Generate
-        # FIX: Use getattr() since config.evaluation is a dataclass, not dict
-        max_length = getattr(self.config.evaluation, 'max_generation_length', 128)
-        num_beams = getattr(self.config.evaluation, 'num_beams', 1)
-
-        generated_ids = model.generate(
-            input_ids=instruction_ids,
-            attention_mask=instruction_mask,
-            max_length=max_length,
-            num_beams=num_beams,
-            do_sample=getattr(self.config.evaluation, 'do_sample', False),
-            pad_token_id=model.tokenizer.pad_token_id,
-            eos_token_id=model.tokenizer.eos_token_id,
-        )
-
-        return generated_ids
 
     def _compute_structural_invariance(
         self,
@@ -314,21 +246,37 @@ class SCIEvaluator:
 
         # Sample pairs with same structure
         pair_generator = dataset.pair_generator
+        tokenizer = model.tokenizer
 
-        # Get all examples
-        all_commands = dataset.commands[:100]  # Limit for efficiency
+        # Get sample of examples
+        num_samples = min(100, len(dataset.commands))
+        all_commands = dataset.commands[:num_samples]
+
+        # Use same format as training for consistency
+        use_chat_template = getattr(self.config.data, 'use_chat_template', False)
 
         # Extract structural representations
         representations = []
 
         with torch.no_grad():
             for command in tqdm(all_commands, desc="Computing structural invariance"):
+                # Format command same way as training
+                if use_chat_template and hasattr(tokenizer, 'apply_chat_template'):
+                    messages = [{"role": "user", "content": f"Translate to action sequence: {command}"}]
+                    prompt = tokenizer.apply_chat_template(
+                        messages, 
+                        tokenize=False, 
+                        add_generation_prompt=True
+                    )
+                else:
+                    prompt = command
+                
                 # Tokenize
-                encoded = model.tokenizer(
-                    f"Instruction: {command}\nOutput:",
+                encoded = tokenizer(
+                    prompt,
                     return_tensors='pt',
                     truncation=True,
-                    max_length=128,
+                    max_length=getattr(self.config.data, 'max_length', 512),
                 ).to(self.device)
 
                 # Get structural representation

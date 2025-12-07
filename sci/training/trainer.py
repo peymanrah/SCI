@@ -219,20 +219,49 @@ class SCITrainer:
         Checks:
         1. Length split constraints (train ≤22 tokens, test >22)
         2. No train/test overlap
+        3. Test split validation (if available)
         """
         checker = DataLeakageChecker(split_name=self.config.data.split)
         
         # Check length constraints for training data
-        commands = [d['commands'] for d in self.train_dataset.data]
-        actions = [d['actions'] for d in self.train_dataset.data]
+        train_commands = [d['commands'] if isinstance(d, dict) else d.get('commands', '') 
+                         for d in self.train_dataset.data]
+        train_actions = [d['actions'] if isinstance(d, dict) else d.get('actions', '') 
+                        for d in self.train_dataset.data]
         
-        result = checker.check_length_split_constraints(commands, actions, "train")
+        result = checker.check_length_split_constraints(train_commands, train_actions, "train")
         
         if result.get('num_violations', 0) > 0:
             print(f"\n⚠️  WARNING: {result['num_violations']} length constraint violations in training data")
             print("    This may affect OOD generalization results.")
         else:
-            print(f"\n✓ Data leakage check passed for {len(commands)} training examples")
+            print(f"\n✓ Data leakage check passed for {len(train_commands)} training examples")
+        
+        # CRITICAL FIX: Also check test split for length constraints
+        if self.config.data.split == "length":
+            try:
+                from datasets import load_dataset
+                test_data = load_dataset("scan", "length")["test"]
+                test_commands = [d['commands'] for d in test_data]
+                test_actions = [d['actions'] for d in test_data]
+                
+                test_result = checker.check_length_split_constraints(test_commands, test_actions, "test")
+                
+                if test_result.get('num_violations', 0) > 0:
+                    print(f"⚠️  WARNING: {test_result['num_violations']} test examples don't meet >22 token requirement")
+                else:
+                    print(f"✓ Test split length constraints verified ({len(test_commands)} examples)")
+                
+                # Check for train/test overlap
+                train_set = set(train_commands)
+                test_set = set(test_commands)
+                overlap = train_set.intersection(test_set)
+                if overlap:
+                    print(f"⚠️  WARNING: {len(overlap)} commands appear in both train and test!")
+                else:
+                    print("✓ No train/test overlap detected")
+            except Exception as e:
+                print(f"  (Could not verify test split: {e})")
     
     def _log_fairness_metrics(self):
         """

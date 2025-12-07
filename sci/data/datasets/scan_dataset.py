@@ -59,6 +59,7 @@ class SCANDataset(Dataset):
         self.subset = subset
         self.max_length = max_length
         self.cache_dir = cache_dir
+        self._using_dummy_data = False  # Flag for testing
 
         # Load SCAN dataset
         print(f"Loading SCAN dataset (split={split_name}, subset={subset})...")
@@ -67,9 +68,19 @@ class SCANDataset(Dataset):
             dataset = load_dataset("scan", split_name)
             self.data = dataset[subset]
         except Exception as e:
-            print(f"Failed to load from Hugging Face: {e}")
-            print("Using dummy data for testing...")
-            self._create_dummy_data()
+            # CRITICAL FIX: Don't silently fall back to dummy data in production
+            # Only use dummy data if explicitly allowed via environment variable
+            import os
+            if os.environ.get('SCI_ALLOW_DUMMY_DATA', '').lower() == 'true':
+                print(f"WARNING: Failed to load from Hugging Face: {e}")
+                print("WARNING: Using dummy data (SCI_ALLOW_DUMMY_DATA=true)")
+                self._create_dummy_data()
+                self._using_dummy_data = True
+            else:
+                raise RuntimeError(
+                    f"Failed to load SCAN dataset from Hugging Face: {e}\n"
+                    f"Please check your internet connection or set SCI_ALLOW_DUMMY_DATA=true for testing."
+                )
 
         # Extract commands and outputs
         self.commands = []
@@ -86,6 +97,9 @@ class SCANDataset(Dataset):
                 self.outputs.append(str(example[1]) if len(example) > 1 else "")
 
         print(f"✓ Loaded {len(self.commands)} examples")
+
+        # CRITICAL FIX: Validate sequence lengths against max_length
+        self._validate_sequence_lengths()
 
         # Initialize structure extractor
         self.structure_extractor = SCANStructureExtractor()
@@ -121,6 +135,50 @@ class SCANDataset(Dataset):
             {"commands": "walk and run", "actions": "WALK RUN"},
         ]
         self.data = dummy_examples * 20  # Replicate for testing
+
+    def _validate_sequence_lengths(self):
+        """
+        Validate that sequences don't exceed max_length.
+        
+        CRITICAL: Warns if any command+action pair exceeds max_length after tokenization.
+        This catches misconfigurations before training.
+        """
+        if self._using_dummy_data:
+            return  # Skip validation for dummy data
+        
+        exceeds_count = 0
+        max_observed = 0
+        
+        # Sample up to 100 examples for efficiency
+        sample_size = min(100, len(self.commands))
+        sample_indices = list(range(0, len(self.commands), max(1, len(self.commands) // sample_size)))[:sample_size]
+        
+        for idx in sample_indices:
+            cmd = self.commands[idx]
+            act = self.outputs[idx]
+            
+            # Estimate token count (rough approximation)
+            # Full tokenization would be expensive, so use simple estimation
+            cmd_tokens = len(self.tokenizer.encode(cmd, add_special_tokens=True))
+            act_tokens = len(self.tokenizer.encode(act, add_special_tokens=False))
+            total_tokens = cmd_tokens + act_tokens + 2  # +2 for separator and EOS
+            
+            max_observed = max(max_observed, total_tokens)
+            
+            if total_tokens > self.max_length:
+                exceeds_count += 1
+        
+        # Report statistics
+        if exceeds_count > 0:
+            pct = (exceeds_count / sample_size) * 100
+            import warnings
+            warnings.warn(
+                f"SCAN dataset: {exceeds_count}/{sample_size} sampled examples ({pct:.1f}%) "
+                f"exceed max_length={self.max_length}. Max observed: {max_observed} tokens. "
+                f"Consider increasing max_length for SCAN length split (needs ~512+ tokens)."
+            )
+        
+        print(f"  Max observed sequence length: {max_observed} tokens (limit: {self.max_length})")
 
     def __len__(self) -> int:
         return len(self.commands)
