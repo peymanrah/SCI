@@ -14,7 +14,7 @@ model:
   # Positional Encoding
   position_encoding:
     type: "rotary"
-    max_length: 512
+    max_length: 1024  # Support prompt + long outputs (SCAN length split needs 288+ tokens)
     base: 10000
 
   # ALL SCI COMPONENTS DISABLED

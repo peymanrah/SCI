@@ -201,8 +201,15 @@ class SCANDataCollator:
         }
 
         # Add pair labels if pair_generator is available
+        # OPTIMIZATION: Use indices for cache lookup instead of recomputing from commands
         if self.pair_generator is not None:
-            pair_labels = self.pair_generator.get_batch_pair_labels(commands)
+            # Check if all items have valid indices for cached lookup
+            if all(isinstance(idx, int) and idx >= 0 for idx in indices):
+                # Use cached pair matrix via indices (much faster)
+                pair_labels = self.pair_generator.get_batch_pair_labels(indices)
+            else:
+                # Fallback to runtime extraction from commands
+                pair_labels = self.pair_generator.get_batch_pair_labels(commands)
             result['pair_labels'] = pair_labels
         elif len(indices) > 0 and hasattr(features[0], 'pair_matrix'):
             # Fallback: try to get from dataset if available

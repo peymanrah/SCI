@@ -568,13 +568,18 @@ class SCIModel(nn.Module):
     def save_pretrained(self, save_directory: str):
         """Save model to directory."""
         import os
+        from dataclasses import asdict
         os.makedirs(save_directory, exist_ok=True)
 
         # Save config
         import json
         with open(os.path.join(save_directory, 'config.json'), 'w') as f:
-            # Convert config to dict if needed
-            config_dict = self.config if isinstance(self.config, dict) else self.config.to_dict()
+            # Convert config to dict - use asdict for dataclasses
+            if isinstance(self.config, dict):
+                config_dict = self.config
+            else:
+                # SCIConfig is a dataclass, use asdict()
+                config_dict = asdict(self.config)
             json.dump(config_dict, f, indent=2)
 
         # Save model state

@@ -202,7 +202,10 @@ class SCITrainer:
 
     def _config_to_dict(self, config):
         """Convert config object to dictionary for logging."""
-        if hasattr(config, 'to_dict'):
+        from dataclasses import is_dataclass, asdict
+        if is_dataclass(config) and not isinstance(config, type):
+            return asdict(config)
+        elif hasattr(config, 'to_dict'):
             return config.to_dict()
         elif hasattr(config, '__dict__'):
             return {k: self._config_to_dict(v) for k, v in config.__dict__.items()}
