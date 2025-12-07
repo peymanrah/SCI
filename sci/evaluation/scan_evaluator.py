@@ -2,6 +2,16 @@
 SCAN Evaluator with Exact Match Scoring
 
 Required by: SCI_ENGINEERING_STANDARDS.md Section 4.2
+
+BUG FIX: Updated to handle concatenated sequence format where:
+- input_ids = instruction + response (concatenated)
+- labels = [-100 for instruction tokens] + [response tokens]
+- instruction_mask = [1 for instruction tokens] + [0 for response tokens]
+
+For evaluation, we need to:
+1. Extract just the instruction tokens
+2. Generate the response
+3. Compare to expected response
 """
 
 import torch
@@ -17,6 +27,9 @@ class SCANEvaluator:
     def evaluate(self, model, test_dataloader, device='cuda'):
         """
         Evaluate model on SCAN dataset.
+
+        With the concatenated format, we need to extract instruction tokens
+        and generate, then compare to expected response.
 
         Args:
             model: SCI model to evaluate
@@ -43,51 +56,78 @@ class SCANEvaluator:
                 input_ids = batch['input_ids'].to(device)
                 attention_mask = batch['attention_mask'].to(device)
                 labels = batch['labels'].to(device)
+                
+                # Get instruction_mask if available, else derive from labels
+                instruction_mask = batch.get('instruction_mask')
+                if instruction_mask is not None:
+                    instruction_mask = instruction_mask.to(device)
+                else:
+                    # Derive from labels: instruction tokens have labels == -100
+                    instruction_mask = (labels == -100).long()
 
-                # CRITICAL #18: Use max_length instead of max_new_tokens to avoid context overflow
-                # Calculate safe max_length: input_length + max_output_tokens
-                max_output_tokens = 300  # SCAN length split max = 288 tokens
-                max_total_length = min(input_ids.shape[1] + max_output_tokens, 2048)  # TinyLlama max = 2048
+                batch_size = input_ids.shape[0]
 
-                # Generate predictions
-                outputs = model.generate(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    max_length=max_total_length,  # Use max_length to prevent context overflow
-                    do_sample=False,  # Greedy decoding
-                    num_beams=1,  # No beam search
-                    eos_token_id=self.tokenizer.eos_token_id,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                )
+                # Process each example in batch
+                for i in range(batch_size):
+                    # Extract instruction tokens only (where instruction_mask == 1)
+                    inst_mask_i = instruction_mask[i]
+                    inst_length = inst_mask_i.sum().item()
+                    
+                    # Get instruction input_ids
+                    instruction_input_ids = input_ids[i, :inst_length].unsqueeze(0)
+                    instruction_attention_mask = attention_mask[i, :inst_length].unsqueeze(0)
 
-                # Decode predictions and targets
-                # Remove input prefix from generated output
-                generated_tokens = outputs[:, input_ids.shape[1]:]
+                    # Extract target: tokens where labels != -100
+                    labels_i = labels[i]
+                    valid_label_mask = labels_i != -100
+                    target_tokens = labels_i[valid_label_mask]
 
-                predictions = self.tokenizer.batch_decode(
-                    generated_tokens,
-                    skip_special_tokens=True
-                )
+                    # CRITICAL #18: Use max_length to avoid context overflow
+                    max_output_tokens = 300  # SCAN length split max = 288 tokens
+                    max_total_length = min(inst_length + max_output_tokens, 2048)
 
-                targets = self.tokenizer.batch_decode(
-                    labels,
-                    skip_special_tokens=True
-                )
+                    # Generate prediction from instruction
+                    outputs = model.generate(
+                        input_ids=instruction_input_ids,
+                        attention_mask=instruction_attention_mask,
+                        max_length=max_total_length,
+                        do_sample=False,  # Greedy decoding
+                        num_beams=1,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                    )
 
-                for pred, target, input_seq in zip(predictions, targets, input_ids):
+                    # Extract generated tokens (remove instruction prefix)
+                    generated_tokens = outputs[0, inst_length:]
+
+                    # Decode
+                    prediction = self.tokenizer.decode(
+                        generated_tokens,
+                        skip_special_tokens=True
+                    ).strip()
+
+                    target = self.tokenizer.decode(
+                        target_tokens,
+                        skip_special_tokens=True
+                    ).strip()
+
+                    input_text = self.tokenizer.decode(
+                        instruction_input_ids[0],
+                        skip_special_tokens=True
+                    ).strip()
+
                     results['total'] += 1
 
                     # Normalize whitespace
-                    pred_normalized = ' '.join(pred.strip().split())
-                    target_normalized = ' '.join(target.strip().split())
+                    pred_normalized = ' '.join(prediction.split())
+                    target_normalized = ' '.join(target.split())
 
                     # EXACT MATCH (most important metric for SCAN)
                     if pred_normalized == target_normalized:
                         results['exact_match'] += 1
                     else:
                         # Log error for analysis
-                        input_text = self.tokenizer.decode(input_seq, skip_special_tokens=True)
-                        if len(results['errors']) < 100:  # Keep first 100 errors
+                        if len(results['errors']) < 100:
                             results['errors'].append({
                                 'input': input_text,
                                 'prediction': pred_normalized,
@@ -96,20 +136,20 @@ class SCANEvaluator:
 
                     # Token accuracy
                     pred_tokens = pred_normalized.split()
-                    target_tokens = target_normalized.split()
+                    target_tokens_split = target_normalized.split()
 
-                    if len(pred_tokens) == len(target_tokens):
+                    if len(pred_tokens) == len(target_tokens_split):
                         results['length_correct'] += 1
-                        if len(target_tokens) > 0:
-                            correct_tokens = sum(p == t for p, t in zip(pred_tokens, target_tokens))
-                            results['token_accuracy'] += correct_tokens / len(target_tokens)
+                        if len(target_tokens_split) > 0:
+                            correct_tokens = sum(p == t for p, t in zip(pred_tokens, target_tokens_split))
+                            results['token_accuracy'] += correct_tokens / len(target_tokens_split)
                     else:
                         # Length mismatch - partial credit for matching prefix
-                        min_len = min(len(pred_tokens), len(target_tokens))
-                        if min_len > 0 and len(target_tokens) > 0:
+                        min_len = min(len(pred_tokens), len(target_tokens_split))
+                        if min_len > 0 and len(target_tokens_split) > 0:
                             correct_tokens = sum(p == t for p, t in
-                                               zip(pred_tokens[:min_len], target_tokens[:min_len]))
-                            results['token_accuracy'] += correct_tokens / len(target_tokens)
+                                               zip(pred_tokens[:min_len], target_tokens_split[:min_len]))
+                            results['token_accuracy'] += correct_tokens / len(target_tokens_split)
 
         # Compute final metrics
         n = results['total']

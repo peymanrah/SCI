@@ -304,27 +304,37 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    # Create data collator
-    collator = SCANDataCollator(tokenizer, max_length=512)
-
     # Load datasets
     print("Loading SCAN dataset...")
     split = config['data']['scan_split']
-    train_dataset = SCANDataset(split=split, subset='train', cache_dir='.cache/datasets')
-    val_dataset = SCANDataset(split=split, subset='val', cache_dir='.cache/datasets')
+    
+    # BUG #88 FIX: Pass tokenizer to SCANDataset constructor
+    train_dataset = SCANDataset(
+        tokenizer=tokenizer,
+        split_name=split,
+        subset='train',
+        max_length=config['data'].get('max_seq_length', 512),
+        cache_dir='.cache/scan',
+    )
+    val_dataset = SCANDataset(
+        tokenizer=tokenizer,
+        split_name=split,
+        subset='test',  # SCAN uses 'test' not 'val'
+        max_length=config['data'].get('max_seq_length', 512),
+        cache_dir='.cache/scan',
+    )
 
     # MEDIUM #58: Log dataset sizes
     print(f"\nDataset sizes:")
     print(f"  Train: {len(train_dataset):,} examples")
     print(f"  Validation: {len(val_dataset):,} examples")
 
-    # Create pair generator
-    print("Creating pair generator...")
-    pair_generator = SCANPairGenerator(
-        cache_dir=f'.cache/scan/{split}/train',
-        num_processes=4,
+    # BUG #86, #87 FIX: Create data collator with pair generator for proper concatenation
+    collator = SCANDataCollator(
+        tokenizer=tokenizer,
+        max_length=config['data'].get('max_seq_length', 512),
+        pair_generator=train_dataset.pair_generator,
     )
-    pair_generator.load_dataset(train_dataset.data)
 
     # Create dataloaders
     train_loader = DataLoader(

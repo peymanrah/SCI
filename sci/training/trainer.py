@@ -29,7 +29,8 @@ except ImportError:
 
 from sci.models.sci_model import SCIModel
 from sci.models.losses.combined_loss import SCICombinedLoss
-from sci.data.datasets.scan_dataset import SCANDataset, SCANCollator
+from sci.data.datasets.scan_dataset import SCANDataset
+from sci.data.scan_data_collator import SCANDataCollator
 
 
 class SCITrainer:
@@ -64,8 +65,12 @@ class SCITrainer:
             force_regenerate_pairs=config.training.get('force_regenerate_pairs', False),
         )
 
-        # Data collator
-        self.collator = SCANCollator(self.train_dataset)
+        # Data collator - uses proper causal LM format with pair generation
+        self.collator = SCANDataCollator(
+            tokenizer=self.model.tokenizer,
+            max_length=config.training.max_length,
+            pair_generator=self.train_dataset.pair_generator,
+        )
 
         # Data loader
         self.train_loader = DataLoader(
@@ -217,7 +222,12 @@ class SCITrainer:
             input_ids = batch['input_ids'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
-            pair_labels = batch['pair_labels'].to(self.device)
+            instruction_mask = batch.get('instruction_mask')  # BUG #90 FIX
+            if instruction_mask is not None:
+                instruction_mask = instruction_mask.to(self.device)
+            pair_labels = batch.get('pair_labels')
+            if pair_labels is not None:
+                pair_labels = pair_labels.to(self.device)
 
             # Forward pass with mixed precision
             with autocast() if self.scaler else torch.enable_grad():
@@ -225,6 +235,7 @@ class SCITrainer:
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     labels=labels,
+                    instruction_mask=instruction_mask,  # BUG #90 FIX
                     return_dict=True,
                 )
 
@@ -287,9 +298,18 @@ class SCITrainer:
             'ortho_loss': total_ortho_loss / num_batches,
         }
 
-    def train(self):
-        """Full training loop."""
+    def train(self, eval_loader=None, evaluator=None):
+        """
+        Full training loop.
+        
+        Args:
+            eval_loader: Optional DataLoader for evaluation
+            evaluator: Optional evaluator instance (e.g., SCANEvaluator)
+        """
         print(f"\nStarting training for {self.config.training.max_epochs} epochs...")
+        
+        # BUG #31 FIX: Configurable evaluation frequency
+        eval_freq = self.config.training.get('eval_freq', 1)  # Evaluate every N epochs
 
         for epoch in range(self.config.training.max_epochs):
             self.epoch = epoch
@@ -302,6 +322,25 @@ class SCITrainer:
             print(f"  LM: {train_metrics['lm_loss']:.4f}")
             print(f"  SCL: {train_metrics['scl_loss']:.4f}")
             print(f"  Ortho: {train_metrics['ortho_loss']:.4f}")
+
+            # BUG #31 FIX: Run evaluation at configurable frequency
+            if eval_loader is not None and evaluator is not None:
+                if (epoch + 1) % eval_freq == 0:
+                    print(f"  Running evaluation...")
+                    eval_metrics = evaluator.evaluate(
+                        model=self.model,
+                        test_dataloader=eval_loader,
+                        device=self.device,
+                    )
+                    print(f"  Eval Exact Match: {eval_metrics['exact_match']*100:.2f}%")
+                    
+                    # Log to wandb if available
+                    if WANDB_AVAILABLE and self.config.logging.get('use_wandb', False):
+                        wandb.log({
+                            'eval/exact_match': eval_metrics['exact_match'],
+                            'eval/token_accuracy': eval_metrics['token_accuracy'],
+                            'epoch': epoch + 1,
+                        })
 
             # Save checkpoint
             if (epoch + 1) % self.config.training.get('save_every', 5) == 0:

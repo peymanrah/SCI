@@ -1,40 +1,62 @@
 """
-SCAN Data Collator with Proper EOS Handling
+SCAN Data Collator with Proper Causal LM Format
 
 Required by: SCI_ENGINEERING_STANDARDS.md Section 4.3
 
-LOW #77: Instruction Mask Format Documentation
-----------------------------------------------
-The instruction_mask is a binary tensor [batch, seq_len] where:
-- 1 = instruction token (command input) - visible to structural encoder
-- 0 = response token (action output) - masked from structural encoder
+BUG #86, #87, #90 FIX: Unified Collator for Causal LM Training
+---------------------------------------------------------------
+For causal language model finetuning:
+1. Concatenate instruction + response into a SINGLE sequence
+2. Create labels with -100 for instruction tokens (loss only on response)
+3. Create instruction_mask for SE/CE (only see instruction, not response)
 
-This prevents data leakage by ensuring the structural encoder only sees
-the input command structure, not the target action sequence.
+Format for each example:
+    Full sequence: [instruction_tokens] + [separator] + [response_tokens] + [EOS]
+    Labels:        [-100, -100, ..., -100, response_token_1, ..., response_token_n, EOS]
+    instruction_mask: [1, 1, ..., 1, 0, 0, ..., 0, 0]
 
-Example:
-    Input:  "jump left"  -> [1, 1, 1]
-    Output: "LTURN JUMP" -> [0, 0, 0]
-    Full sequence: [1, 1, 1, 0, 0, 0]
+This ensures:
+- Model learns next-token prediction on the full sequence
+- Loss is only computed on response tokens
+- SE/CE only see instruction tokens (no data leakage)
 """
 
 import torch
+from typing import List, Dict, Optional
 
 
 class SCANDataCollator:
-    """Data collator with proper EOS handling for SCAN dataset."""
+    """
+    Data collator for SCAN dataset with proper causal LM format.
+    
+    BUG #86, #87, #90 FIX: This collator:
+    1. Concatenates instruction + response into single sequence
+    2. Creates proper labels with -100 for instruction tokens
+    3. Creates instruction_mask for SE/CE data leakage prevention
+    4. Includes commands for pair generation
+    5. Optionally accepts pair_generator for batch pair labels
+    """
 
-    def __init__(self, tokenizer, max_length=512):
+    def __init__(
+        self,
+        tokenizer,
+        max_length: int = 512,
+        separator: str = " -> ",  # Separator between command and actions
+        pair_generator=None,  # Optional: for SCL pair labels
+    ):
         """
         Args:
             tokenizer: HuggingFace tokenizer
-            max_length: Maximum sequence length (MEDIUM #69: Exposed as parameter)
+            max_length: Maximum sequence length
+            separator: String separator between instruction and response
+            pair_generator: Optional SCANPairGenerator for pair labels
         """
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.separator = separator
+        self.pair_generator = pair_generator
 
         # HIGH #27: Enforce padding_side='right' for decoder models
-        # This is critical for proper attention mask handling
         self.tokenizer.padding_side = 'right'
 
         # Ensure EOS token is set
@@ -45,93 +67,130 @@ class SCANDataCollator:
             tokenizer.pad_token_id = tokenizer.eos_token_id
             tokenizer.pad_token = tokenizer.eos_token
 
-    def __call__(self, features):
+    def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         """
-        Collate batch of features.
+        Collate batch of features into proper causal LM format.
 
         Args:
             features: List of dicts with 'commands' and 'actions' keys
+                     (and optionally 'idx' for pair lookup)
 
         Returns:
-            dict: Batch with input_ids, attention_mask, labels, instruction_mask, commands
+            dict: Batch with:
+                - input_ids: [batch, seq_len] - Concatenated instruction + response
+                - attention_mask: [batch, seq_len] - 1 for tokens, 0 for padding
+                - labels: [batch, seq_len] - Same as input_ids but -100 for instruction
+                - instruction_mask: [batch, seq_len] - 1 for instruction, 0 for response
+                - commands: List[str] - Raw commands for pair generation
+                - pair_labels: [batch, batch] - If pair_generator provided
         """
         # Extract inputs and targets
-        inputs = [f['commands'] for f in features]
-        targets = [f['actions'] for f in features]
+        commands = [f['commands'] for f in features]
+        actions = [f['actions'] for f in features]
+        indices = [f.get('idx', i) for i, f in enumerate(features)]
 
-        # Encode inputs
-        input_encodings = self.tokenizer(
-            inputs,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
+        batch_size = len(commands)
 
-        # Encode targets WITH EOS token
-        target_encodings = self.tokenizer(
-            targets,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
+        # Tokenize each part separately, then combine for accurate boundary tracking
+        all_input_ids = []
+        all_instruction_lengths = []
+        
+        for cmd, act in zip(commands, actions):
+            # Tokenize command (with BOS)
+            cmd_enc = self.tokenizer.encode(cmd, add_special_tokens=True)
+            
+            # Tokenize separator (no special tokens)
+            sep_enc = self.tokenizer.encode(self.separator, add_special_tokens=False)
+            
+            # Tokenize response (no special tokens, but add EOS at end)
+            act_enc = self.tokenizer.encode(act, add_special_tokens=False)
+            
+            # Instruction = command + separator (everything before response)
+            instruction_length = len(cmd_enc) + len(sep_enc)
+            
+            # Full sequence = command + separator + response + EOS
+            full_sequence = cmd_enc + sep_enc + act_enc + [self.tokenizer.eos_token_id]
+            
+            all_input_ids.append(full_sequence)
+            all_instruction_lengths.append(instruction_length)
 
-        # CRITICAL #7: Consolidated EOS enforcement logic
-        # Ensure EOS token is at the end of each target sequence
-        labels = target_encodings['input_ids'].clone()
+        # Pad sequences to same length
+        max_len = min(max(len(seq) for seq in all_input_ids), self.max_length)
+        
+        padded_input_ids = []
+        padded_attention_mask = []
+        
+        for seq in all_input_ids:
+            if len(seq) > max_len:
+                # Truncate
+                seq = seq[:max_len-1] + [self.tokenizer.eos_token_id]
+            
+            # Pad to max_len
+            pad_len = max_len - len(seq)
+            padded_seq = seq + [self.tokenizer.pad_token_id] * pad_len
+            attention = [1] * len(seq) + [0] * pad_len
+            
+            padded_input_ids.append(padded_seq)
+            padded_attention_mask.append(attention)
 
-        for i in range(len(targets)):
-            # Find the last non-padding position
-            non_pad_mask = labels[i] != self.tokenizer.pad_token_id
-            if non_pad_mask.any():
-                last_non_pad_idx = non_pad_mask.nonzero(as_tuple=False)[-1].item()
+        input_ids = torch.tensor(padded_input_ids, dtype=torch.long)
+        attention_mask = torch.tensor(padded_attention_mask, dtype=torch.long)
+        seq_len = input_ids.shape[1]
 
-                # Ensure last token is EOS (replace if not)
-                if labels[i, last_non_pad_idx] != self.tokenizer.eos_token_id:
-                    # Try to add EOS after current last token if space available
-                    if last_non_pad_idx + 1 < labels.shape[1]:
-                        labels[i, last_non_pad_idx + 1] = self.tokenizer.eos_token_id
-                    else:
-                        # No space, replace last token with EOS
-                        labels[i, last_non_pad_idx] = self.tokenizer.eos_token_id
+        # Create labels: same as input_ids but with -100 for instruction tokens and padding
+        labels = input_ids.clone()
+        
+        # Create instruction_mask: 1 for instruction tokens, 0 for response/padding
+        instruction_mask = torch.zeros_like(input_ids)
 
-        # Mask padding in labels with -100 (ignored by loss)
-        labels[labels == self.tokenizer.pad_token_id] = -100
+        for i in range(batch_size):
+            inst_len = min(all_instruction_lengths[i], seq_len)
+            
+            # instruction_mask = 1 for instruction tokens, 0 for response
+            instruction_mask[i, :inst_len] = 1
+            
+            # labels = -100 for instruction tokens (no loss computed)
+            labels[i, :inst_len] = -100
 
-        # Create instruction mask
-        # Instruction mask is 1 for input tokens, 0 for response tokens
-        # For SCAN: instruction = command, response = actions
-        # During training, SE and CE should only see the command (instruction_mask=1)
-        instruction_mask = self._create_instruction_mask(input_encodings)
+        # Mask padding in labels with -100
+        labels[attention_mask == 0] = -100
 
-        return {
-            'input_ids': input_encodings['input_ids'],
-            'attention_mask': input_encodings['attention_mask'],
+        result = {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
             'labels': labels,
             'instruction_mask': instruction_mask,
-            'commands': inputs  # CRITICAL #5: Include commands for pair generation
+            'commands': commands,  # CRITICAL #5: Include commands for pair generation
         }
 
-    def _create_instruction_mask(self, inputs):
+        # Add pair labels if pair_generator is available
+        if self.pair_generator is not None:
+            pair_labels = self.pair_generator.get_batch_pair_labels(commands)
+            result['pair_labels'] = pair_labels
+        elif len(indices) > 0 and hasattr(features[0], 'pair_matrix'):
+            # Fallback: try to get from dataset if available
+            pass  # Will be handled by training loop
+
+        return result
+
+    def _create_instruction_mask(self, input_ids: torch.Tensor, instruction_lengths: List[int]) -> torch.Tensor:
         """
         Create mask that is 1 for instruction tokens, 0 for response tokens.
 
         CRITICAL #6: This prevents data leakage by ensuring structural/content encoders
         only see the instruction, not the response.
 
-        For SCAN with separate inputs/targets, the input IS the instruction.
-        The instruction mask should be 1 for all input tokens.
-
         Args:
-            inputs: Encoded inputs (commands only, not actions)
+            input_ids: [batch, seq_len] - Tokenized sequences
+            instruction_lengths: List of instruction lengths for each example
 
         Returns:
             torch.Tensor: Instruction mask [batch, seq_len]
         """
-        # For SCAN with separate encoding, inputs contain ONLY commands
-        # So instruction_mask = attention_mask (1 for command tokens, 0 for padding)
-        # This is correct because actions are encoded separately as labels
-        instruction_mask = inputs['attention_mask'].clone()
+        batch_size, seq_len = input_ids.shape
+        instruction_mask = torch.zeros(batch_size, seq_len, dtype=torch.long)
+
+        for i, inst_len in enumerate(instruction_lengths):
+            instruction_mask[i, :inst_len] = 1
 
         return instruction_mask

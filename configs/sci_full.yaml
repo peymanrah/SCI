@@ -76,6 +76,8 @@ training:
   gradient_clip: 1.0
   warmup_steps: 1000
   mixed_precision: true  # Use fp16
+  eval_freq: 1           # BUG #31 FIX: Evaluate every N epochs (1 = every epoch)
+  save_every: 5          # Save checkpoint every N epochs
 
   optimizer:
     type: "AdamW"

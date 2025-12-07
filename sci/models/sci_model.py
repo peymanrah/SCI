@@ -287,6 +287,7 @@ class SCIModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
+        instruction_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         output_hidden_states: bool = False,
         **kwargs,
@@ -298,6 +299,7 @@ class SCIModel(nn.Module):
             input_ids: [batch_size, seq_len] - Token IDs
             attention_mask: [batch_size, seq_len] - 1 for valid tokens, 0 for padding
             labels: [batch_size, seq_len] - Target labels with -100 for instruction
+            instruction_mask: [batch_size, seq_len] - Optional explicit instruction mask (1=instruction, 0=response)
             return_dict: Whether to return dictionary
             output_hidden_states: Whether to return intermediate hidden states
 
@@ -317,12 +319,19 @@ class SCIModel(nn.Module):
         attention_mask = attention_mask.to(self.device)
         if labels is not None:
             labels = labels.to(self.device)
+        if instruction_mask is not None:
+            instruction_mask = instruction_mask.to(self.device)
 
         # ============================================================
         # STEP 1: Extract instruction mask (CRITICAL for no leakage)
         # ============================================================
+        # BUG #90 FIX: Use explicit instruction_mask if provided,
+        # otherwise derive from labels
 
-        if labels is not None:
+        if instruction_mask is not None:
+            # Use explicit instruction_mask from batch (preferred)
+            pass  # Already set from parameter
+        elif labels is not None:
             instruction_mask = self.get_instruction_mask(input_ids, labels)
         else:
             # During inference, treat all tokens as instruction

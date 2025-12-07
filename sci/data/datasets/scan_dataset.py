@@ -154,12 +154,12 @@ class SCANDataset(Dataset):
 @dataclass
 class SCANCollator:
     """
-    Custom collator for SCAN dataset that includes pair labels.
-
-    This collator:
-    1. Batches examples normally
-    2. Looks up pair labels for the batch indices
-    3. Returns batch with pair_labels tensor
+    DEPRECATED: Use SCANDataCollator from sci.data.scan_data_collator instead.
+    
+    This collator expects pre-tokenized tensors but SCANDataset returns raw strings.
+    The SCANDataCollator properly handles string inputs and creates causal LM format.
+    
+    Kept for backward compatibility with any code that uses tensor-based approach.
     """
 
     dataset: SCANDataset

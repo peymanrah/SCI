@@ -188,36 +188,64 @@ class SCANPairGenerator:
 
     def get_batch_pair_labels(
         self,
-        indices: List[int],
+        batch_items,
     ) -> torch.Tensor:
         """
         Get pair labels for a batch of examples.
 
-        This is called during training to get pair labels for the current batch.
+        BUG FIX: This method now accepts EITHER:
+        - List of indices (int) for pre-computed pair matrix lookup
+        - List of commands (str) for runtime structure extraction
 
         Args:
-            indices: List of dataset indices in the batch
+            batch_items: Either List[int] (indices) or List[str] (commands)
 
         Returns:
             pair_labels: [batch_size, batch_size] binary tensor
                 where 1 = same structure, 0 = different
         """
+        if len(batch_items) == 0:
+            return torch.zeros((0, 0), dtype=torch.long)
+
+        # Check if items are indices or commands
+        if isinstance(batch_items[0], int):
+            # Use pre-computed pair matrix
+            return self._get_pair_labels_from_indices(batch_items)
+        elif isinstance(batch_items[0], str):
+            # Compute pair labels from commands at runtime
+            return self._get_pair_labels_from_commands(batch_items)
+        else:
+            raise ValueError(f"Unsupported batch_items type: {type(batch_items[0])}")
+
+    def _get_pair_labels_from_indices(self, indices: List[int]) -> torch.Tensor:
+        """Get pair labels using pre-computed pair matrix."""
         if self.pair_matrix is None:
             raise ValueError("Pair matrix not generated. Call generate_pairs() first.")
 
-        batch_size = len(indices)
-
         # Extract submatrix for this batch
-        # Convert indices to numpy array for advanced indexing
         idx_array = np.array(indices)
-
-        # Get the relevant submatrix
         batch_pair_labels = self.pair_matrix[idx_array[:, None], idx_array[None, :]]
 
-        # Convert to tensor
-        pair_labels_tensor = torch.from_numpy(batch_pair_labels).long()
+        return torch.from_numpy(batch_pair_labels).long()
 
-        return pair_labels_tensor
+    def _get_pair_labels_from_commands(self, commands: List[str]) -> torch.Tensor:
+        """Compute pair labels from commands at runtime."""
+        batch_size = len(commands)
+
+        # Extract structures for each command
+        structures = []
+        for cmd in commands:
+            template, _ = self.extractor.extract_structure(cmd)
+            structures.append(template)
+
+        # Compute pair matrix: 1 if same structure, 0 if different
+        pair_labels = torch.zeros((batch_size, batch_size), dtype=torch.long)
+        for i in range(batch_size):
+            for j in range(batch_size):
+                if structures[i] == structures[j]:
+                    pair_labels[i, j] = 1
+
+        return pair_labels
 
     def get_structure_statistics(self) -> Dict:
         """
