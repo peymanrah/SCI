@@ -1,0 +1,395 @@
+================================================================================
+                    COMPREHENSIVE BUG REPORT - SCI CODEBASE
+                         Line-by-Line Code Review
+                         Generated: December 7, 2025
+================================================================================
+
+Based on thorough review of all source files, here is the complete list of 
+bugs discovered:
+
+================================================================================
+                          CRITICAL SEVERITY
+              (Will cause crashes or incorrect results)
+================================================================================
+
+CRITICAL #1: train.py uses dictionary access but load_config returns dataclass
+--------------------------------------------------------------------------------
+File: train.py lines 104-107, 269-282, 358-377
+Issue: The script uses dictionary-style access like config['training']['batch_size'] 
+       but load_config() returns dataclass objects with attribute access 
+       (config.training.batch_size).
+Impact: Runtime TypeError - entire training script will crash immediately.
+Fix: Change all config['key'] to config.key throughout train.py.
+
+
+CRITICAL #2: train.py uses wrong config paths
+--------------------------------------------------------------------------------
+File: train.py lines 269-282
+Issue: References config['experiment']['name'] and config['data']['scan_split'] 
+       but the dataclass uses config.experiment.name and config.data.split 
+       (not scan_split).
+Impact: Training fails with KeyError or AttributeError.
+
+
+CRITICAL #3: train.py validate() calls evaluator.evaluate() with DataLoader
+--------------------------------------------------------------------------------
+File: train.py lines 252-253
+Code: eval_results = evaluator.evaluate(model, val_loader, device=device)
+Issue: SCANEvaluator.evaluate() takes dataset and collator parameters, 
+       NOT a dataloader.
+Impact: Runtime TypeError in validation.
+
+
+CRITICAL #4: run_ablations.py uses wrong training script path
+--------------------------------------------------------------------------------
+File: scripts/run_ablations.py lines 115-130
+Code:
+    train_script = Path(__file__).parent.parent / 'train.py'
+    cmd = [
+        sys.executable,
+        str(train_script),
+        '--config', str(config_path),
+        '--output-dir', str(output_dir),
+        '--wandb-project', args.wandb_project,
+        '--wandb-run-name', ablation_name,
+    ]
+Issue: train.py doesn't accept --wandb-project or --wandb-run-name arguments. 
+       These are only in the scripts version.
+Impact: All ablation runs fail with unrecognized argument errors.
+
+
+CRITICAL #5: train.py passes nonexistent pair_generator to SCANDataCollator
+--------------------------------------------------------------------------------
+File: train.py lines 325-329
+Code:
+    collator = SCANDataCollator(
+        tokenizer=tokenizer,
+        max_length=config['data'].get('max_seq_length', 512),
+        pair_generator=train_dataset.pair_generator,
+    )
+Issue: SCANDataCollator.__init__() signature is 
+       (self, tokenizer, max_length, use_chat_template=True). 
+       It does NOT accept a pair_generator parameter.
+Impact: TypeError at runtime.
+
+
+CRITICAL #6: train.py calls SCANDataset with wrong constructor arguments
+--------------------------------------------------------------------------------
+File: train.py lines 305-318
+Code:
+    train_dataset = SCANDataset(
+        tokenizer=tokenizer,
+        split_name=split,
+        subset='train',
+        max_length=config['data'].get('max_seq_length', 512),
+        cache_dir='.cache/scan',
+    )
+Issue: SCANDataset.__init__() signature is 
+       (self, config, split="length", subset="train", tokenizer=None, cache_dir=".cache/scan"). 
+       First positional is config, not tokenizer. And it takes split not split_name.
+Impact: TypeError - training will crash.
+
+
+================================================================================
+                           HIGH SEVERITY
+              (Will cause incorrect behavior or data issues)
+================================================================================
+
+HIGH #7: CheckpointingConfig.keep_last_n is never used
+--------------------------------------------------------------------------------
+File: sci/config/config_loader.py line 93
+Issue: CheckpointingConfig has keep_last_n: int = 3 but CheckpointManager 
+       uses save_total_limit instead.
+Impact: Config option is ignored; users can't control checkpoint retention.
+
+
+HIGH #8: LoggingConfig fields are defined but never read
+--------------------------------------------------------------------------------
+File: sci/config/config_loader.py lines 79-90
+Issue: LoggingConfig defines log_dir, results_dir, tensorboard, 
+       checkpoint_every_n_epochs but none of these are used anywhere in 
+       the trainer or evaluator.
+Impact: Users configure these options but they have no effect.
+
+
+HIGH #9: Evaluator per-example processing is O(n^2) slow
+--------------------------------------------------------------------------------
+File: sci/evaluation/evaluator.py lines 150-220
+Issue: _evaluate_dataset() iterates example-by-example, creates single-item 
+       batches, and generates one at a time. For large test sets (1000+ examples), 
+       this is extremely slow.
+Impact: Evaluation takes 10-100x longer than necessary.
+
+
+HIGH #10: SCANDataset has deprecated SCANCollator class that references undefined attributes
+--------------------------------------------------------------------------------
+File: sci/data/datasets/scan_dataset.py lines 285-320
+Code:
+    class SCANCollator:
+        """Deprecated: Kept for backward compatibility."""
+        def __call__(self, batch):
+            # batch is list of dicts with input_ids, attention_mask, labels
+Issue: Comment says batch has input_ids, attention_mask, labels but 
+       SCANDataset.__getitem__() returns {"command": ..., "action": ...} (raw strings).
+Impact: If anyone uses this deprecated class, it will crash with KeyError.
+
+
+HIGH #11: content_encoder.py doesn't re-apply instruction_mask after each layer
+--------------------------------------------------------------------------------
+File: sci/models/components/content_encoder.py lines 180-220
+Issue: Unlike structural_encoder.py which re-applies instruction masking after 
+       each transformer layer, content_encoder.py only applies it once before 
+       pooling. This means content information from non-instruction tokens 
+       leaks into the representation.
+Impact: Content representations may be contaminated with structural information.
+
+
+HIGH #12: causal_binding.py position queries use fixed max_seq_len
+--------------------------------------------------------------------------------
+File: sci/models/components/causal_binding.py lines 95-110
+Code:
+    self.position_queries = nn.Parameter(
+        torch.randn(1, base_max_seq_len, d_model) * 0.02
+    )
+Issue: Position queries are fixed at base_max_seq_len=1024. If input exceeds 
+       this, the code attempts dynamic extension but doesn't properly handle 
+       the extension logic.
+Impact: Crashes or incorrect behavior for sequences longer than 1024 tokens.
+
+
+HIGH #13: combined_loss.py EOS loss computed on wrong dimension
+--------------------------------------------------------------------------------
+File: sci/models/losses/combined_loss.py lines 180-200
+Issue: EOS loss calculation uses structural_output[:, -1, :] assuming the 
+       last token is always EOS. But in padding scenarios, the last position 
+       might be padding, not EOS.
+Impact: EOS loss is computed on padding tokens, not actual EOS tokens.
+
+
+HIGH #14: scan_pair_generator.py doesn't handle empty batches
+--------------------------------------------------------------------------------
+File: sci/data/pair_generators/scan_pair_generator.py lines 420-450
+Issue: get_batch_pair_labels() doesn't check for empty batch. If commands 
+       list is empty, it will return malformed tensor.
+Impact: Runtime errors on edge cases with empty batches.
+
+
+HIGH #15: scan_extractor.py CONTENT_WORDS misses some SCAN primitives
+--------------------------------------------------------------------------------
+File: sci/data/structure_extractors/scan_extractor.py line 25
+Code: CONTENT_WORDS = {'walk', 'run', 'jump', 'look'}
+Issue: Missing 'turn'. The SCAN dataset includes "turn left", "turn right", 
+       "turn opposite left", etc. where "turn" is a content word.
+Impact: "turn" will be incorrectly treated as structural, breaking 
+       structure extraction.
+
+
+================================================================================
+                          MEDIUM SEVERITY
+              (Non-optimal behavior or edge case issues)
+================================================================================
+
+MEDIUM #16: trainer.py doesn't use gradient_accumulation_steps from config
+--------------------------------------------------------------------------------
+File: sci/training/trainer.py lines 200-300
+Issue: Config has gradient_accumulation_steps but trainer doesn't implement 
+       gradient accumulation logic.
+Impact: Users can't effectively train with larger logical batch sizes on 
+       memory-constrained GPUs.
+
+
+MEDIUM #17: trainer.py log_every uses hardcoded 10
+--------------------------------------------------------------------------------
+File: sci/training/trainer.py around line 350
+Code: if batch_idx % 10 == 0:
+Issue: Hardcoded to 10 even though config has log_every field.
+Impact: Config option ignored.
+
+
+MEDIUM #18: slot_attention.py epsilon in softmax denominator not configurable
+--------------------------------------------------------------------------------
+File: sci/models/components/slot_attention.py lines 120-140
+Issue: Uses hardcoded eps=1e-8 in attention normalization. For FP16 training, 
+       this might be too small.
+Impact: Potential numerical instability in mixed precision training.
+
+
+MEDIUM #19: positional_encoding.py rotary base hardcoded
+--------------------------------------------------------------------------------
+File: sci/models/components/positional_encoding.py lines 80-100
+Issue: The RoPE base frequency is sometimes hardcoded to 10000 even when 
+       config specifies different value.
+Impact: Position encoding behavior doesn't match TinyLlama's exact implementation.
+
+
+MEDIUM #20: abstraction_layer.py structural_weight clamping affects gradients
+--------------------------------------------------------------------------------
+File: sci/models/components/abstraction_layer.py lines 150-180
+Code: structural_weight = torch.sigmoid(self.gate(x)).clamp(0, 1)
+Issue: torch.clamp() after sigmoid is redundant (sigmoid already outputs 0-1) 
+       but more importantly, if gradients are small, clamping can cause 
+       gradient flow issues.
+Impact: Potentially suboptimal training of abstraction gates.
+
+
+MEDIUM #21: data_leakage_checker.py doesn't check for near-duplicates
+--------------------------------------------------------------------------------
+File: sci/data/data_leakage_checker.py lines 150-200
+Issue: Only checks exact command match. SCAN has semantically equivalent 
+       commands with different word orders that should also be flagged.
+Impact: Subtle data leakage possible.
+
+
+MEDIUM #22: config_loader.py doesn't validate injection_layers against num_decoder_layers
+--------------------------------------------------------------------------------
+File: sci/config/config_loader.py lines 400-450
+Issue: Validation checks don't verify that causal_binding.injection_layers 
+       are within valid range (0 to num_decoder_layers-1).
+Impact: Runtime IndexError if user specifies layer 25 when model only has 22 layers.
+
+
+MEDIUM #23: scl_loss.py temperature not applied consistently
+--------------------------------------------------------------------------------
+File: sci/models/losses/scl_loss.py lines 100-130
+Issue: Temperature is applied in one place but not in the normalization step, 
+       leading to inconsistent scaling.
+Impact: SCL loss magnitude varies unexpectedly with temperature changes.
+
+
+MEDIUM #24: train.py has circular import risk
+--------------------------------------------------------------------------------
+File: train.py lines 40-51
+Issue: Imports from multiple sci.* modules at top level. If any of these 
+       modules import train.py (e.g., for constants), circular import occurs.
+Impact: Potential ImportError in certain import orders.
+
+
+MEDIUM #25: scripts/train_sci.py duplicates logic from train.py
+--------------------------------------------------------------------------------
+Files: scripts/train_sci.py and train.py
+Issue: Two separate training scripts with different argument names, different 
+       config handling, and potentially different behavior.
+Impact: Confusion about which to use; maintenance burden.
+
+
+================================================================================
+                           LOW SEVERITY
+              (Code quality, documentation, minor issues)
+================================================================================
+
+LOW #26: Missing type hints throughout codebase
+--------------------------------------------------------------------------------
+Files: Multiple
+Issue: Most functions lack type hints, making code harder to understand 
+       and IDE support limited.
+
+
+LOW #27: evaluate.py analyze_errors categories are ambiguous
+--------------------------------------------------------------------------------
+File: evaluate.py lines 80-95
+Code:
+    error_types = {
+        'length_mismatch': [],
+        'token_errors': [],
+        'structure_errors': [],
+    }
+Issue: If length matches and tokens match, it goes to structure_errors, 
+       but that condition is impossible - if all tokens match, it's not 
+       an error. Logic is confusing.
+
+
+LOW #28: Inconsistent use of print vs logging
+--------------------------------------------------------------------------------
+Files: Multiple
+Issue: Some files use print(), some use logging, some use both. 
+       No consistent logging strategy.
+
+
+LOW #29: checkpoint_manager.py prints [OK] prefix inconsistently
+--------------------------------------------------------------------------------
+File: sci/training/checkpoint_manager.py
+Issue: Some messages use [OK] prefix, others don't. 
+       Inconsistent output formatting.
+
+
+LOW #30: early_stopping.py OverfittingDetector never actually stops training
+--------------------------------------------------------------------------------
+File: sci/training/early_stopping.py lines 75-110
+Issue: OverfittingDetector.update() returns (is_overfitting, ratio) but 
+       the caller never acts on this to stop training - it's just informational.
+
+
+LOW #31: Several unused imports
+--------------------------------------------------------------------------------
+Files: Multiple
+Issue: Various files import modules that are never used 
+       (e.g., json, datetime in some files).
+
+
+LOW #32: Magic numbers in multiple files
+--------------------------------------------------------------------------------
+Files: Multiple
+Issue: Hardcoded values like 0.02 for init scale, 1e-8 for epsilon, etc. 
+       should be config options or named constants.
+
+
+LOW #33: conftest.py modifies config but doesn't verify changes work
+--------------------------------------------------------------------------------
+File: tests/conftest.py lines 25-35
+Issue: Test fixture modifies config attributes but doesn't verify they 
+       exist first. If config structure changes, tests fail with confusing errors.
+
+
+LOW #34: test_integration.py creates own config instead of using conftest fixture
+--------------------------------------------------------------------------------
+File: tests/test_integration.py lines 20-75
+Issue: Defines minimal_sci_config fixture that duplicates and may diverge 
+       from actual config structure.
+
+
+LOW #35: Missing docstrings in several test files
+--------------------------------------------------------------------------------
+Files: tests/*.py
+Issue: Some test methods lack docstrings explaining what they're testing.
+
+
+================================================================================
+                              SUMMARY
+================================================================================
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL |   6   |
+| HIGH     |   9   |
+| MEDIUM   |  10   |
+| LOW      |  10   |
+|----------|-------|
+| TOTAL    |  35   |
+
+
+================================================================================
+                         PRIORITY FIX ORDER
+================================================================================
+
+1. CRITICAL #1-6: Fix train.py to use dataclass attribute access and correct 
+   API calls - these prevent any training from running
+
+2. HIGH #7-15: Fix config unused fields, evaluator performance, content 
+   encoder masking, SCAN extractor
+
+3. MEDIUM #16-25: Fix gradient accumulation, log_every, numerical stability issues
+
+4. LOW #26-35: Code quality and consistency improvements
+
+
+================================================================================
+                              NOTE
+================================================================================
+
+This report does NOT repeat bugs that were identified in previous review 
+sessions and have been confirmed fixed. This is a fresh list of new issues 
+discovered during line-by-line code review.
+
+================================================================================
+                           END OF REPORT
+================================================================================

@@ -115,6 +115,14 @@ class OptimizerConfig:
     weight_decay: float = 0.01
     betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
     eps: float = 1e-8
+    max_grad_norm: float = 1.0  # Gradient clipping norm
+    use_scheduler: bool = False  # Whether to use LR scheduler
+    
+    # CRITICAL #1: Dict-style access support
+    def __getitem__(self, key):
+        return getattr(self, key)
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
 
 @dataclass
@@ -123,6 +131,26 @@ class SchedulerConfig:
     type: str = "cosine"
     num_training_steps: int = 50000
     num_warmup_steps: int = 1000
+    
+    # CRITICAL #1: Dict-style access support
+    def __getitem__(self, key):
+        return getattr(self, key)
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+
+@dataclass
+class EarlyStoppingConfig:
+    """Early stopping configuration."""
+    patience: int = 5  # Number of epochs to wait before stopping
+    min_delta: float = 0.001  # Minimum change to qualify as improvement
+    overfitting_threshold: float = 1.5  # Train/val loss ratio threshold
+    
+    # CRITICAL #1: Dict-style access support
+    def __getitem__(self, key):
+        return getattr(self, key)
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
 
 @dataclass
@@ -130,6 +158,7 @@ class TrainingConfig:
     """Training configuration."""
     batch_size: int = 32
     max_epochs: int = 50
+    epochs: int = 50  # Alias for backwards compatibility with train.py
     gradient_clip: float = 1.0
     warmup_steps: int = 1000
     mixed_precision: bool = True  # Use fp16
@@ -139,6 +168,7 @@ class TrainingConfig:
 
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    early_stopping: EarlyStoppingConfig = field(default_factory=EarlyStoppingConfig)
 
     # CRITICAL #20: Dict-style access support
     def __getitem__(self, key):
@@ -232,6 +262,13 @@ class CheckpointingConfig:
     """Checkpointing configuration."""
     save_dir: str = "checkpoints"
     keep_last_n: int = 3
+    save_total_limit: int = 3  # Alias used by CheckpointManager
+    
+    # CRITICAL #1: Dict-style access support
+    def __getitem__(self, key):
+        return getattr(self, key)
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
 
 @dataclass
@@ -373,6 +410,12 @@ def _validate_config(config: SCIConfig):
             "injection_layers cannot be empty when causal intervention is enabled"
         assert all(layer >= 0 for layer in config.model.causal_binding.injection_layers), \
             f"injection_layers must be non-negative, got {config.model.causal_binding.injection_layers}"
+        # MEDIUM #22: Validate injection_layers against num_decoder_layers
+        num_decoder_layers = config.model.num_decoder_layers
+        for layer in config.model.causal_binding.injection_layers:
+            assert layer < num_decoder_layers, \
+                f"injection_layer {layer} >= num_decoder_layers {num_decoder_layers}. " \
+                f"Layers must be in range [0, {num_decoder_layers - 1}]"
 
     logger.info("✓ Config validation passed")
 

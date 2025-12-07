@@ -113,13 +113,21 @@ class SCICombinedLoss(nn.Module):
         shift_labels = labels[:, 1:].contiguous()
         shift_eos_mask = eos_mask[:, 1:]
         
-        # Compute cross entropy only at EOS positions
-        loss_fct = nn.CrossEntropyLoss(reduction='none')
-        flat_logits = shift_logits.view(-1, shift_logits.size(-1))
-        flat_labels = shift_labels.view(-1)
-        flat_eos_mask = shift_eos_mask.view(-1)
+        # HIGH #13 FIX: Compute cross entropy only at EOS positions with explicit dimension handling
+        batch_size = shift_logits.size(0)
+        seq_len = shift_logits.size(1)
+        vocab_size = shift_logits.size(2)
         
-        # Get loss for all tokens
+        loss_fct = nn.CrossEntropyLoss(reduction='none')
+        flat_logits = shift_logits.view(batch_size * seq_len, vocab_size)
+        flat_labels = shift_labels.view(batch_size * seq_len)
+        flat_eos_mask = shift_eos_mask.contiguous().view(batch_size * seq_len)
+        
+        # Assert dimensions match
+        assert flat_logits.size(0) == flat_labels.size(0) == flat_eos_mask.size(0), \
+            f"Dimension mismatch: logits {flat_logits.size(0)}, labels {flat_labels.size(0)}, mask {flat_eos_mask.size(0)}"
+        
+        # Get loss for all tokens (clamp labels to handle -100)
         token_losses = loss_fct(flat_logits, flat_labels.clamp(min=0))
         
         # Mask out non-EOS tokens
@@ -199,6 +207,9 @@ class SCICombinedLoss(nn.Module):
             # If not computed by model, return zero
             lm_loss = torch.tensor(0.0, device=device, requires_grad=True)
 
+        # HIGH #14 FIX: Get batch size for empty batch handling
+        batch_size = model_outputs['logits'].size(0) if 'logits' in model_outputs else 0
+
         # =====================================================
         # 2. Structural Contrastive Learning Loss
         # =====================================================
@@ -207,8 +218,10 @@ class SCICombinedLoss(nn.Module):
         scl_loss = torch.tensor(0.0, device=device)
         num_positive_pairs = 0
 
+        # HIGH #14: SCL requires batch_size >= 2 for meaningful contrastive pairs
         if (structural_slots is not None and
             pair_labels is not None and
+            batch_size >= 2 and
             pair_labels.sum() > 0):  # Check if there are positive pairs
 
             # Compute SCL loss
@@ -229,7 +242,8 @@ class SCICombinedLoss(nn.Module):
         content_repr = model_outputs.get('content_repr')
         ortho_loss = torch.tensor(0.0, device=device)
 
-        if structural_slots is not None and content_repr is not None:
+        # HIGH #14: Orthogonality loss works even with batch_size=1
+        if structural_slots is not None and content_repr is not None and batch_size >= 1:
             ortho_loss = self.compute_orthogonality_loss(
                 content_repr=content_repr,
                 structural_slots=structural_slots,

@@ -33,9 +33,10 @@ class SCANStructureExtractor:
     """
 
     # Content words in SCAN (actions only)
+    # HIGH #15: Include 'turn' which appears in addprim_turn_left split
     CONTENT_WORDS = {
-        'walk', 'run', 'jump', 'look',
-        'WALK', 'RUN', 'JUMP', 'LOOK',  # Include capitalized versions
+        'walk', 'run', 'jump', 'look', 'turn',
+        'WALK', 'RUN', 'JUMP', 'LOOK', 'TURN',  # Include capitalized versions
     }
 
     # Structural words (everything else is structural)

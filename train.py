@@ -112,9 +112,9 @@ def create_optimizer_groups(model, config):
             base_params.append(param)
 
     optimizer_groups = [
-        {'params': base_params, 'lr': config['training']['optimizer']['base_lr']},
-        {'params': sci_params, 'lr': config['training']['optimizer']['sci_lr']},
-        {'params': no_decay_params, 'lr': config['training']['optimizer']['base_lr'], 'weight_decay': 0.0},
+        {'params': base_params, 'lr': config.training.optimizer.base_lr},
+        {'params': sci_params, 'lr': config.training.optimizer.sci_lr},
+        {'params': no_decay_params, 'lr': config.training.optimizer.base_lr, 'weight_decay': 0.0},
     ]
 
     print(f"  Base params: {len(base_params)}")
@@ -147,9 +147,18 @@ def train_epoch(model, train_loader, optimizer, scheduler, criterion,
     num_batches = 0
 
     # SCL warmup
-    warmup_epochs = config['training']['loss'].get('scl_warmup_epochs', 2)
+    warmup_epochs = getattr(config.loss, 'scl_warmup_epochs', 2)
     warmup_factor = compute_scl_weight_warmup(epoch, warmup_epochs)
-    scl_weight = config['training']['loss']['scl_weight'] * warmup_factor
+    scl_weight = config.loss.scl_weight * warmup_factor
+    
+    # Logging frequency
+    log_every = getattr(config.logging, 'log_every', 10)
+    
+    # MEDIUM #16: Gradient accumulation steps
+    grad_accum_steps = getattr(config.training, 'gradient_accumulation_steps', 1)
+    
+    # Zero gradients at start
+    optimizer.zero_grad()
 
     for batch_idx, batch in enumerate(train_loader):
         # Move to device
@@ -173,28 +182,34 @@ def train_epoch(model, train_loader, optimizer, scheduler, criterion,
         # Compute loss
         losses = criterion(outputs, pair_labels, scl_weight_override=scl_weight)
         loss = losses['total_loss']
+        
+        # MEDIUM #16: Scale loss by gradient accumulation steps
+        scaled_loss = loss / grad_accum_steps
 
-        # Backward pass
-        optimizer.zero_grad()
-        loss.backward()
+        # Backward pass (accumulate gradients)
+        scaled_loss.backward()
 
-        # Gradient clipping
-        max_grad_norm = config['training']['optimizer'].get('max_grad_norm', 1.0)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+        # Step optimizer every grad_accum_steps batches
+        if (batch_idx + 1) % grad_accum_steps == 0 or (batch_idx + 1) == len(train_loader):
+            # Gradient clipping
+            max_grad_norm = getattr(config.training.optimizer, 'max_grad_norm', 1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
 
-        optimizer.step()
-        if scheduler is not None:
-            scheduler.step()
+            optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
+            
+            optimizer.zero_grad()
 
-        # Accumulate metrics
+        # Accumulate metrics (use unscaled loss for logging)
         total_loss += loss.item()
         total_lm_loss += losses['lm_loss'].item()
         total_scl_loss += losses['scl_loss'].item()
         total_ortho_loss += losses['orthogonality_loss'].item()
         num_batches += 1
 
-        # Log every N batches
-        if batch_idx % 10 == 0:
+        # Log every N batches (MEDIUM #17: Use config.logging.log_every)
+        if batch_idx % log_every == 0:
             print(f"  Batch {batch_idx}/{len(train_loader)}: "
                   f"Loss={loss.item():.4f} "
                   f"LM={losses['lm_loss'].item():.4f} "
@@ -276,8 +291,11 @@ def main():
     print(f"Loading config from {args.config}")
     config = load_config(args.config)
 
+    # Determine experiment name from config file name
+    experiment_name = Path(args.config).stem
+
     # Setup output directory
-    output_dir = Path(args.output_dir) / config['experiment']['name']
+    output_dir = Path(args.output_dir) / experiment_name
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = output_dir / 'checkpoints'
     checkpoint_dir.mkdir(exist_ok=True)
@@ -286,8 +304,8 @@ def main():
     if not args.no_wandb:
         wandb.init(
             project=args.wandb_project,
-            name=args.wandb_run_name or config['experiment']['name'],
-            config=config,
+            name=args.wandb_run_name or experiment_name,
+            config=config.to_dict() if hasattr(config, 'to_dict') else config,
         )
 
     # Setup device
@@ -297,7 +315,7 @@ def main():
     # Load tokenizer
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        config['model']['base_model'],
+        config.model.base_model_name,
         cache_dir='.cache/models'
     )
     if tokenizer.pad_token is None:
@@ -306,23 +324,26 @@ def main():
 
     # Load datasets
     print("Loading SCAN dataset...")
-    split = config['data']['scan_split']
+    split = config.data.split
     
     # BUG #88 FIX: Pass tokenizer to SCANDataset constructor
     train_dataset = SCANDataset(
         tokenizer=tokenizer,
         split_name=split,
         subset='train',
-        max_length=config['data'].get('max_seq_length', 512),
-        cache_dir='.cache/scan',
+        max_length=config.data.max_length,
+        cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
     )
     val_dataset = SCANDataset(
         tokenizer=tokenizer,
         split_name=split,
         subset='test',  # SCAN uses 'test' not 'val'
-        max_length=config['data'].get('max_seq_length', 512),
-        cache_dir='.cache/scan',
+        max_length=config.data.max_length,
+        cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
     )
+
+    # Get pair_generator from train_dataset for SCL training
+    pair_generator = train_dataset.pair_generator
 
     # MEDIUM #58: Log dataset sizes
     print(f"\nDataset sizes:")
@@ -332,14 +353,15 @@ def main():
     # BUG #86, #87 FIX: Create data collator with pair generator for proper concatenation
     collator = SCANDataCollator(
         tokenizer=tokenizer,
-        max_length=config['data'].get('max_seq_length', 512),
-        pair_generator=train_dataset.pair_generator,
+        max_length=config.data.max_length,
+        pair_generator=pair_generator,
+        use_chat_template=getattr(config.data, 'use_chat_template', False),
     )
 
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config['training']['batch_size'],
+        batch_size=config.training.batch_size,
         shuffle=True,
         collate_fn=collator,
         num_workers=0,  # Windows compatibility
@@ -347,7 +369,7 @@ def main():
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=config['training']['batch_size'],
+        batch_size=config.training.batch_size,
         shuffle=False,
         collate_fn=collator,
         num_workers=0,
@@ -363,45 +385,46 @@ def main():
     optimizer_groups = create_optimizer_groups(model, config)
     optimizer = torch.optim.AdamW(
         optimizer_groups,
-        weight_decay=config['training']['optimizer']['weight_decay'],
+        weight_decay=config.training.optimizer.weight_decay,
     )
 
     # Create scheduler (optional)
     scheduler = None
-    if config['training']['optimizer'].get('use_scheduler', False):
+    if getattr(config.training.optimizer, 'use_scheduler', False):
         scheduler = torch.optim.lr_scheduler.LinearLR(
             optimizer,
             start_factor=1.0,
             end_factor=0.1,
-            total_iters=config['training']['epochs'] * len(train_loader),
+            total_iters=config.training.epochs * len(train_loader),
         )
 
     # Create loss function
     criterion = SCICombinedLoss(
-        scl_weight=config['training']['loss']['scl_weight'],
-        ortho_weight=config['training']['loss']['orthogonality_weight'],
-        temperature=config['training']['loss']['temperature'],
+        scl_weight=config.loss.scl_weight,
+        ortho_weight=config.loss.ortho_weight,
+        temperature=config.loss.scl_temperature,
     )
 
     # Create evaluator with eval config
-    eval_config = config.get('evaluation', {})
+    eval_config = getattr(config, 'evaluation', None)
     evaluator = SCANEvaluator(tokenizer, eval_config=eval_config)
 
     # Create checkpoint manager
     checkpoint_manager = CheckpointManager(
         checkpoint_dir=checkpoint_dir,
-        save_total_limit=config['training']['checkpointing']['save_total_limit'],
+        save_total_limit=getattr(config.checkpointing, 'save_total_limit', 
+                                 getattr(config.checkpointing, 'keep_last_n', 3)),
     )
 
     # Create early stopping
     early_stopping = EarlyStopping(
-        patience=config['training']['early_stopping']['patience'],
-        min_delta=config['training']['early_stopping']['min_delta'],
+        patience=config.training.early_stopping.patience,
+        min_delta=config.training.early_stopping.min_delta,
         mode='max',  # Maximize exact match
     )
 
     overfitting_detector = OverfittingDetector(
-        threshold_ratio=config['training']['early_stopping'].get('overfitting_threshold', 1.5),
+        threshold_ratio=getattr(config.training.early_stopping, 'overfitting_threshold', 1.5),
         window_size=3,
         min_epochs=5,
     )
@@ -427,13 +450,13 @@ def main():
 
     # Training loop
     print(f"\nStarting training from epoch {start_epoch}...")
-    print(f"Total epochs: {config['training']['epochs']}")
-    print(f"Batch size: {config['training']['batch_size']}")
+    print(f"Total epochs: {config.training.epochs}")
+    print(f"Batch size: {config.training.batch_size}")
     print(f"Train batches: {len(train_loader)}")
     print(f"Val batches: {len(val_loader)}")
 
-    for epoch in range(start_epoch, config['training']['epochs']):
-        print(f"\n=== Epoch {epoch+1}/{config['training']['epochs']} ===")
+    for epoch in range(start_epoch, config.training.epochs):
+        print(f"\n=== Epoch {epoch+1}/{config.training.epochs} ===")
 
         # Train
         train_metrics = train_epoch(

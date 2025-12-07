@@ -195,6 +195,13 @@ class ContentEncoder(nn.Module):
         for layer in self.layers:
             hidden_states = layer(hidden_states, src_key_padding_mask=transformer_mask)
 
+        # HIGH #11 FIX: Reapply instruction mask AFTER transformer layers for safety
+        # Even though attention mask should prevent leakage, explicitly zero out
+        # response positions to ensure no information leaks
+        if instruction_mask is not None:
+            mask_expanded = instruction_mask.unsqueeze(-1).float()
+            hidden_states = hidden_states * mask_expanded
+
         # Pool to sequence-level representation
         content_repr = self.pool(hidden_states, attention_mask)
 
