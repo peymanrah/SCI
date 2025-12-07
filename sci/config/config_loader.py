@@ -133,6 +133,9 @@ class TrainingConfig:
     gradient_clip: float = 1.0
     warmup_steps: int = 1000
     mixed_precision: bool = True  # Use fp16
+    eval_freq: int = 1  # Evaluate every N epochs
+    save_every: int = 5  # Save checkpoint every N epochs
+    gradient_accumulation_steps: int = 1  # For larger effective batch sizes
 
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
@@ -200,6 +203,15 @@ class LoggingConfig:
     wandb_tags: List[str] = field(default_factory=list)
     log_every_n_steps: int = 100
     checkpoint_every_n_epochs: int = 5
+    use_wandb: bool = False  # Default off for local runs
+    log_dir: str = "logs"
+    results_dir: str = "results"
+    
+    # CRITICAL #20: Dict-style access support
+    def __getitem__(self, key):
+        return getattr(self, key)
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
 
 @dataclass
@@ -303,19 +315,31 @@ def _validate_config(config: SCIConfig):
     assert 0 <= config.training.optimizer.weight_decay < 1, \
         f"weight_decay must be in [0, 1), got {config.training.optimizer.weight_decay}"
 
-    # Loss validation
-    assert 0 < config.loss.scl_weight <= 1, \
-        f"scl_weight must be in (0, 1], got {config.loss.scl_weight}"
+    # Loss validation - allow 0 for baseline (no SCL)
+    assert 0 <= config.loss.scl_weight <= 1, \
+        f"scl_weight must be in [0, 1], got {config.loss.scl_weight}"
     assert config.loss.scl_temperature > 0, \
         f"scl_temperature must be positive, got {config.loss.scl_temperature}"
     assert 0 <= config.loss.ortho_weight <= 1, \
         f"ortho_weight must be in [0, 1], got {config.loss.ortho_weight}"
 
-    # Model validation
-    assert config.model.structural_encoder.num_slots > 0, \
-        f"num_slots must be positive, got {config.model.structural_encoder.num_slots}"
-    assert config.model.structural_encoder.d_model > 0, \
-        f"d_model must be positive, got {config.model.structural_encoder.d_model}"
+    # Data validation - CRITICAL: max_length for SCAN length split
+    if config.data.split == "length":
+        assert config.data.max_length >= 300, \
+            f"SCAN length split requires max_length >= 300 (outputs up to 288 tokens), got {config.data.max_length}"
+    
+    # Evaluation max_generation_length should match data constraints
+    if hasattr(config.evaluation, 'max_generation_length'):
+        if config.data.split == "length":
+            assert config.evaluation.max_generation_length >= 288, \
+                f"SCAN length split requires max_generation_length >= 288, got {config.evaluation.max_generation_length}"
+
+    # Model validation - only validate if enabled
+    if getattr(config.model.structural_encoder, 'enabled', True):
+        assert config.model.structural_encoder.num_slots > 0, \
+            f"num_slots must be positive, got {config.model.structural_encoder.num_slots}"
+        assert config.model.structural_encoder.d_model > 0, \
+            f"d_model must be positive, got {config.model.structural_encoder.d_model}"
 
     # CBM validation - handle both attribute name formats
     cbm_enabled = getattr(config.model.causal_binding, 'enable_causal_intervention',

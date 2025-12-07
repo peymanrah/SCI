@@ -96,8 +96,10 @@ class CausalBindingMechanism(nn.Module):
 
         self.broadcast_norm = nn.LayerNorm(self.d_model)
 
-        # Learned position queries for broadcast (max_seq_len=512)
-        self.position_queries = nn.Parameter(torch.randn(1, 512, self.d_model) * 0.02)
+        # Learned position queries for broadcast (dynamically extended if needed)
+        # Base max_seq_len, but can be extended at runtime
+        self.base_max_seq_len = 1024  # Support longer sequences for SCAN length split
+        self.position_queries = nn.Parameter(torch.randn(1, self.base_max_seq_len, self.d_model) * 0.02)
 
         # Injection adapters for each decoder layer
         # These prepare the bound representation for injection
@@ -317,8 +319,20 @@ class CausalBindingMechanism(nn.Module):
         # Create position indices
         positions = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
 
-        # Get position queries (clip to seq_len and move to correct device)
-        pos_queries = self.position_queries[:, :seq_len, :].to(device).expand(batch_size, -1, -1)
+        # Get position queries (handle sequences longer than base_max_seq_len)
+        if seq_len <= self.position_queries.shape[1]:
+            # Use pre-learned position queries
+            pos_queries = self.position_queries[:, :seq_len, :].to(device).expand(batch_size, -1, -1)
+        else:
+            # For longer sequences, interpolate position queries
+            # This allows handling sequences beyond base_max_seq_len
+            import torch.nn.functional as F
+            # Interpolate to seq_len using linear interpolation
+            pos_queries_base = self.position_queries.to(device)  # [1, base_max, d_model]
+            pos_queries_base = pos_queries_base.transpose(1, 2)  # [1, d_model, base_max]
+            pos_queries = F.interpolate(pos_queries_base, size=seq_len, mode='linear', align_corners=True)
+            pos_queries = pos_queries.transpose(1, 2)  # [1, seq_len, d_model]
+            pos_queries = pos_queries.expand(batch_size, -1, -1)
 
         # Broadcast attention: position queries attend to bound slots
         broadcast_repr, _ = self._multihead_attention(

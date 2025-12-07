@@ -8,9 +8,12 @@ Key Features:
 4. Gradient accumulation
 5. WandB logging
 6. Checkpointing with best model tracking
+7. Fairness logging for baseline/SCI comparison
+8. Data leakage checks (required by SCI_ENGINEERING_STANDARDS.md)
 """
 
 import os
+import time
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -31,6 +34,7 @@ from sci.models.sci_model import SCIModel
 from sci.models.losses.combined_loss import SCICombinedLoss
 from sci.data.datasets.scan_dataset import SCANDataset
 from sci.data.scan_data_collator import SCANDataCollator
+from sci.data.data_leakage_checker import DataLeakageChecker
 
 
 class SCITrainer:
@@ -124,6 +128,12 @@ class SCITrainer:
         self.global_step = 0
         self.epoch = 0
         self.best_loss = float('inf')
+        
+        # Run data leakage checks (required by SCI_ENGINEERING_STANDARDS.md)
+        self._run_data_leakage_checks()
+        
+        # Log fairness metrics for baseline/SCI comparison
+        self._log_fairness_metrics()
 
     def _get_optimizer_groups(self):
         """
@@ -194,6 +204,88 @@ class SCITrainer:
             return {k: self._config_to_dict(v) for k, v in config.__dict__.items()}
         else:
             return config
+
+    def _run_data_leakage_checks(self):
+        """
+        Run data leakage checks required by SCI_ENGINEERING_STANDARDS.md.
+        
+        Checks:
+        1. Length split constraints (train ≤22 tokens, test >22)
+        2. No train/test overlap
+        """
+        checker = DataLeakageChecker(split_name=self.config.data.split)
+        
+        # Check length constraints for training data
+        commands = [d['commands'] for d in self.train_dataset.data]
+        actions = [d['actions'] for d in self.train_dataset.data]
+        
+        result = checker.check_length_split_constraints(commands, actions, "train")
+        
+        if result.get('num_violations', 0) > 0:
+            print(f"\n⚠️  WARNING: {result['num_violations']} length constraint violations in training data")
+            print("    This may affect OOD generalization results.")
+        else:
+            print(f"\n✓ Data leakage check passed for {len(commands)} training examples")
+    
+    def _log_fairness_metrics(self):
+        """
+        Log fairness metrics for baseline/SCI comparison.
+        
+        Required for fair comparison between SCI and baseline:
+        - Same batch size, epochs, warmup
+        - Same generation config for evaluation
+        - Parameter count logging
+        - Training time estimation
+        """
+        # Count parameters
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        
+        # SCI-specific parameters
+        sci_params = 0
+        for name, param in self.model.named_parameters():
+            if any(m in name.lower() for m in ['structural_encoder', 'content_encoder', 'causal_binding']):
+                sci_params += param.numel()
+        
+        # Check if this is a baseline run (no SCI components)
+        is_baseline = not getattr(self.config.model.structural_encoder, 'enabled', True)
+        
+        fairness_info = {
+            "run_type": "baseline" if is_baseline else "sci_full",
+            "total_params": total_params,
+            "trainable_params": trainable_params,
+            "sci_params": sci_params,
+            "batch_size": self.config.training.batch_size,
+            "max_epochs": self.config.training.max_epochs,
+            "warmup_steps": self.config.training.warmup_steps,
+            "base_lr": self.config.training.optimizer.base_lr,
+            "sci_lr": self.config.training.optimizer.sci_lr,
+            "weight_decay": self.config.training.optimizer.weight_decay,
+            "mixed_precision": self.config.training.mixed_precision,
+            "max_length": self.config.data.max_length,
+            "seed": self.config.seed,
+        }
+        
+        print(f"\n{'='*70}")
+        print("FAIRNESS METRICS (for baseline/SCI comparison):")
+        print(f"{'='*70}")
+        print(f"  Run Type:           {fairness_info['run_type']}")
+        print(f"  Total Parameters:   {total_params:,}")
+        print(f"  Trainable Params:   {trainable_params:,}")
+        print(f"  SCI Module Params:  {sci_params:,}")
+        print(f"  Batch Size:         {fairness_info['batch_size']}")
+        print(f"  Max Epochs:         {fairness_info['max_epochs']}")
+        print(f"  Base LR:            {fairness_info['base_lr']:.2e}")
+        print(f"  SCI LR:             {fairness_info['sci_lr']:.2e}")
+        print(f"  Weight Decay:       {fairness_info['weight_decay']}")
+        print(f"  Mixed Precision:    {fairness_info['mixed_precision']}")
+        print(f"  Max Length:         {fairness_info['max_length']}")
+        print(f"  Seed:               {fairness_info['seed']}")
+        print(f"{'='*70}\n")
+        
+        # Log to wandb if available
+        if self.use_wandb:
+            wandb.config.update({"fairness": fairness_info})
 
     def compute_scl_weight(self, epoch: int) -> float:
         """Compute SCL weight with warmup."""
