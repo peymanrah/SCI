@@ -166,9 +166,12 @@ class DataConfig:
     """Data configuration."""
     dataset: str = "scan"
     split: str = "length"  # or "template", "addprim_jump"
-    max_length: int = 512
+    max_length: int = 512  # Must be >= 300 for SCAN length split outputs (up to 288 tokens)
     scl_ratio: float = 0.5  # 50% of batch for SCL pairs
     num_workers: int = 4
+    pairs_cache_dir: str = ".cache/scan"  # Cache for pair matrices
+    force_regenerate_pairs: bool = False  # Force regeneration of pairs
+    use_chat_template: bool = False  # Use chat template for chat-finetuned models like TinyLlama-Chat
 
     # CRITICAL #20: Dict-style access support
     def __getitem__(self, key):
@@ -228,6 +231,11 @@ class SCIConfig:
     def get(self, key, default=None):
         """Support dict.get() style access"""
         return getattr(self, key, default)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert config to dictionary for serialization."""
+        from dataclasses import asdict
+        return asdict(self)
 
 
 def load_config(config_path: str) -> SCIConfig:

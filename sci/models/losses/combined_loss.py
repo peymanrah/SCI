@@ -49,6 +49,7 @@ class SCICombinedLoss(nn.Module):
         - lm_loss: LM loss component
         - scl_loss: SCL loss component
         - orthogonality_loss: Orthogonality loss component
+        - eos_loss: EOS enforcement loss component
         - num_positive_pairs: Number of positive pairs in batch
     """
 
@@ -59,11 +60,15 @@ class SCICombinedLoss(nn.Module):
         temperature: float = 0.07,
         use_hard_negatives: bool = True,
         hard_negative_ratio: float = 0.3,
+        eos_weight: float = 2.0,
+        eos_token_id: int = None,
     ):
         super().__init__()
 
         self.scl_weight = scl_weight
         self.ortho_weight = ortho_weight
+        self.eos_weight = eos_weight
+        self.eos_token_id = eos_token_id
 
         # Structural Contrastive Learning loss
         self.scl_loss_fn = StructuralContrastiveLoss(
@@ -73,6 +78,60 @@ class SCICombinedLoss(nn.Module):
 
         self.use_hard_negatives = use_hard_negatives
         self.hard_negative_ratio = hard_negative_ratio
+
+    def compute_eos_loss(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        eos_token_id: int,
+    ) -> torch.Tensor:
+        """
+        Compute EOS enforcement loss.
+        
+        Upweights the loss on the EOS token to ensure proper sequence termination.
+        
+        Args:
+            logits: [batch, seq_len, vocab_size]
+            labels: [batch, seq_len] with -100 for ignored tokens
+            eos_token_id: Token ID for EOS
+            
+        Returns:
+            eos_loss: Scalar loss for EOS tokens
+        """
+        if eos_token_id is None:
+            return torch.tensor(0.0, device=logits.device)
+            
+        # Find positions where label is EOS
+        eos_mask = (labels == eos_token_id)
+        
+        if not eos_mask.any():
+            return torch.tensor(0.0, device=logits.device)
+        
+        # Get logits at EOS positions
+        # Shift logits to align with labels (predict next token)
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        shift_eos_mask = eos_mask[:, 1:]
+        
+        # Compute cross entropy only at EOS positions
+        loss_fct = nn.CrossEntropyLoss(reduction='none')
+        flat_logits = shift_logits.view(-1, shift_logits.size(-1))
+        flat_labels = shift_labels.view(-1)
+        flat_eos_mask = shift_eos_mask.view(-1)
+        
+        # Get loss for all tokens
+        token_losses = loss_fct(flat_logits, flat_labels.clamp(min=0))
+        
+        # Mask out non-EOS tokens
+        eos_losses = token_losses * flat_eos_mask.float()
+        
+        # Average over EOS tokens
+        if flat_eos_mask.sum() > 0:
+            eos_loss = eos_losses.sum() / flat_eos_mask.sum()
+        else:
+            eos_loss = torch.tensor(0.0, device=logits.device)
+            
+        return eos_loss
 
     def compute_orthogonality_loss(
         self,
@@ -177,14 +236,29 @@ class SCICombinedLoss(nn.Module):
             )
 
         # =====================================================
-        # 4. Combine Losses
+        # 4. EOS Enforcement Loss
+        # =====================================================
+
+        eos_loss = torch.tensor(0.0, device=device)
+        labels = model_outputs.get('labels')
+        logits = model_outputs.get('logits')
+
+        if self.eos_weight > 0 and self.eos_token_id is not None and labels is not None and logits is not None:
+            eos_loss = self.compute_eos_loss(
+                logits=logits,
+                labels=labels,
+                eos_token_id=self.eos_token_id,
+            )
+
+        # =====================================================
+        # 5. Combine Losses
         # =====================================================
 
         # Use override weight if provided (for warmup schedule)
         scl_weight = scl_weight_override if scl_weight_override is not None else self.scl_weight
 
         # Total loss
-        total_loss = lm_loss + scl_weight * scl_loss + self.ortho_weight * ortho_loss
+        total_loss = lm_loss + scl_weight * scl_loss + self.ortho_weight * ortho_loss + self.eos_weight * eos_loss
 
         # Return all components for logging
         return {
@@ -192,6 +266,7 @@ class SCICombinedLoss(nn.Module):
             'lm_loss': lm_loss,
             'scl_loss': scl_loss,
             'orthogonality_loss': ortho_loss,
+            'eos_loss': eos_loss,
             'num_positive_pairs': num_positive_pairs,
             'scl_weight_used': scl_weight,
         }

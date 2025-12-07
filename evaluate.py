@@ -245,8 +245,9 @@ def main():
     resumer.load_checkpoint(model, optimizer=None, scheduler=None)
     print(f"Loaded checkpoint from epoch {resumer.checkpoint['epoch']}")
 
-    # Create evaluator
-    evaluator = SCANEvaluator(tokenizer)
+    # Create evaluator with eval config
+    eval_config = config.get('evaluation', {})
+    evaluator = SCANEvaluator(tokenizer, eval_config=eval_config)
 
     # Evaluate
     print(f"\n{'='*60}")

@@ -34,7 +34,7 @@ training:
   dataset: "scan"
   split: "length"
   subset: "train"
-  max_length: 128
+  max_length: 512  # SCAN length split can have outputs up to 288 tokens
 
   # Batch configuration (same as SCI)
   batch_size: 32

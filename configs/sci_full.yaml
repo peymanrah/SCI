@@ -65,9 +65,10 @@ model:
 data:
   dataset: "scan"
   split: "length"    # Train on length split (OOD generalization test)
-  max_length: 128    # Sufficient for SCAN
+  max_length: 512    # SCAN length split can have outputs up to 288 tokens
   scl_ratio: 0.5
   num_workers: 4
+  use_chat_template: true  # Use chat template for TinyLlama-Chat model
 
 # Training Configuration
 training:

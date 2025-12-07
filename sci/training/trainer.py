@@ -47,29 +47,32 @@ class SCITrainer:
         print("Initializing SCI model...")
         self.model = SCIModel(config).to(self.device)
 
-        # Initialize loss function
+        # Initialize loss function with EOS weight
         self.loss_fn = SCICombinedLoss(
             scl_weight=config.loss.scl_weight,
             ortho_weight=config.loss.ortho_weight,
             temperature=config.loss.scl_temperature,
+            eos_weight=config.loss.get('eos_weight', 2.0),
+            eos_token_id=self.model.tokenizer.eos_token_id,
         )
 
-        # Initialize dataset
-        print(f"Loading {config.training.dataset} dataset...")
+        # Initialize dataset - use data config section
+        print(f"Loading {config.data.dataset} dataset...")
         self.train_dataset = SCANDataset(
             tokenizer=self.model.tokenizer,
-            split_name=config.training.split,
-            subset=config.training.subset,
-            max_length=config.training.max_length,
-            cache_dir=config.training.get('pairs_cache_dir', '.cache/scan'),
-            force_regenerate_pairs=config.training.get('force_regenerate_pairs', False),
+            split_name=config.data.split,
+            subset='train',  # Training always uses train split
+            max_length=config.data.max_length,
+            cache_dir=config.data.get('pairs_cache_dir', '.cache/scan'),
+            force_regenerate_pairs=config.data.get('force_regenerate_pairs', False),
         )
 
         # Data collator - uses proper causal LM format with pair generation
         self.collator = SCANDataCollator(
             tokenizer=self.model.tokenizer,
-            max_length=config.training.max_length,
+            max_length=config.data.max_length,
             pair_generator=self.train_dataset.pair_generator,
+            use_chat_template=getattr(config.data, 'use_chat_template', False),
         )
 
         # Data loader
@@ -86,7 +89,7 @@ class SCITrainer:
         optimizer_groups = self._get_optimizer_groups()
         self.optimizer = AdamW(
             optimizer_groups,
-            weight_decay=config.training.weight_decay,
+            weight_decay=config.training.optimizer.weight_decay,
         )
 
         # Scheduler
@@ -98,7 +101,7 @@ class SCITrainer:
         )
 
         # Mixed precision scaler
-        self.scaler = GradScaler() if config.training.fp16 else None
+        self.scaler = GradScaler() if config.training.mixed_precision else None
 
         # SCL warmup
         self.scl_warmup_epochs = config.loss.get('scl_warmup_epochs', 2)
@@ -114,7 +117,7 @@ class SCITrainer:
             wandb.watch(self.model, log='all', log_freq=100)
 
         # Checkpointing
-        self.checkpoint_dir = config.training.checkpoint_dir
+        self.checkpoint_dir = config.checkpointing.save_dir
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         # Training state
@@ -137,8 +140,8 @@ class SCITrainer:
         sci_params = []
         no_decay_params = []
 
-        base_lr = self.config.training.learning_rate  # 2e-5
-        sci_lr = getattr(self.config.training, 'sci_learning_rate', base_lr * 2.5)  # 5e-5
+        base_lr = self.config.training.optimizer.base_lr  # 2e-5
+        sci_lr = self.config.training.optimizer.sci_lr  # 5e-5
 
         for name, param in self.model.named_parameters():
             if not param.requires_grad:
@@ -169,12 +172,12 @@ class SCITrainer:
             {
                 'params': base_params,
                 'lr': base_lr,
-                'weight_decay': self.config.training.weight_decay
+                'weight_decay': self.config.training.optimizer.weight_decay
             },
             {
                 'params': sci_params,
                 'lr': sci_lr,
-                'weight_decay': self.config.training.weight_decay
+                'weight_decay': self.config.training.optimizer.weight_decay
             },
             {
                 'params': no_decay_params,
@@ -238,6 +241,9 @@ class SCITrainer:
                     instruction_mask=instruction_mask,  # BUG #90 FIX
                     return_dict=True,
                 )
+                
+                # Add labels to outputs for EOS loss computation
+                outputs['labels'] = labels
 
                 # Compute combined loss
                 losses = self.loss_fn(

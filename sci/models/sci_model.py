@@ -210,12 +210,25 @@ class SCIModel(nn.Module):
                             return output
 
                         batch_size, seq_len, d_model = hidden_states.shape
+                        
+                        # Device alignment: ensure CBM inputs are on same device as hidden states
+                        target_device = hidden_states.device
+                        structural_slots = self.current_structural_slots
+                        content_repr = self.current_content_repr
+                        edge_weights = self.current_edge_weights
+                        
+                        if structural_slots.device != target_device:
+                            structural_slots = structural_slots.to(target_device)
+                        if content_repr.device != target_device:
+                            content_repr = content_repr.to(target_device)
+                        if edge_weights is not None and edge_weights.device != target_device:
+                            edge_weights = edge_weights.to(target_device)
 
                         # Step 1: Bind content to structural slots
                         bound_repr, _ = self.causal_binding.bind(
-                            structural_slots=self.current_structural_slots,
-                            content_repr=self.current_content_repr,
-                            edge_weights=self.current_edge_weights,
+                            structural_slots=structural_slots,
+                            content_repr=content_repr,
+                            edge_weights=edge_weights,
                         )
 
                         # Step 2: Broadcast to sequence length

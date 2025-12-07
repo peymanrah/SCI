@@ -383,8 +383,9 @@ def main():
         temperature=config['training']['loss']['temperature'],
     )
 
-    # Create evaluator
-    evaluator = SCANEvaluator(tokenizer)
+    # Create evaluator with eval config
+    eval_config = config.get('evaluation', {})
+    evaluator = SCANEvaluator(tokenizer, eval_config=eval_config)
 
     # Create checkpoint manager
     checkpoint_manager = CheckpointManager(

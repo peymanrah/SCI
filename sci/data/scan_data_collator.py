@@ -35,6 +35,7 @@ class SCANDataCollator:
     3. Creates instruction_mask for SE/CE data leakage prevention
     4. Includes commands for pair generation
     5. Optionally accepts pair_generator for batch pair labels
+    6. Supports chat template for chat-finetuned models (e.g., TinyLlama-Chat)
     """
 
     def __init__(
@@ -43,6 +44,7 @@ class SCANDataCollator:
         max_length: int = 512,
         separator: str = " -> ",  # Separator between command and actions
         pair_generator=None,  # Optional: for SCL pair labels
+        use_chat_template: bool = False,  # Use tokenizer's chat template if available
     ):
         """
         Args:
@@ -50,11 +52,18 @@ class SCANDataCollator:
             max_length: Maximum sequence length
             separator: String separator between instruction and response
             pair_generator: Optional SCANPairGenerator for pair labels
+            use_chat_template: If True and tokenizer has chat_template, format as chat
         """
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.separator = separator
         self.pair_generator = pair_generator
+        
+        # Determine if we should use chat template
+        self.use_chat_template = use_chat_template and hasattr(tokenizer, 'apply_chat_template')
+        if use_chat_template and not self.use_chat_template:
+            import warnings
+            warnings.warn("use_chat_template=True but tokenizer has no apply_chat_template method. Using plain format.")
 
         # HIGH #27: Enforce padding_side='right' for decoder models
         self.tokenizer.padding_side = 'right'
@@ -66,6 +75,27 @@ class SCANDataCollator:
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
             tokenizer.pad_token = tokenizer.eos_token
+
+    def _format_instruction(self, command: str) -> str:
+        """
+        Format the command as instruction, optionally using chat template.
+        
+        For chat models like TinyLlama-Chat, this wraps the command in the
+        proper chat format for better model understanding.
+        """
+        if self.use_chat_template:
+            # Format as chat message for chat-finetuned models
+            messages = [{"role": "user", "content": f"Translate to action sequence: {command}"}]
+            # apply_chat_template returns the formatted string
+            formatted = self.tokenizer.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=True  # Add the assistant prefix
+            )
+            return formatted
+        else:
+            # Plain format: just the command
+            return command
 
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         """
@@ -96,20 +126,27 @@ class SCANDataCollator:
         all_instruction_lengths = []
         
         for cmd, act in zip(commands, actions):
-            # Tokenize command (with BOS)
-            cmd_enc = self.tokenizer.encode(cmd, add_special_tokens=True)
+            # Format instruction (optionally with chat template)
+            instruction = self._format_instruction(cmd)
             
-            # Tokenize separator (no special tokens)
-            sep_enc = self.tokenizer.encode(self.separator, add_special_tokens=False)
+            # Tokenize instruction (with special tokens)
+            inst_enc = self.tokenizer.encode(instruction, add_special_tokens=True)
+            
+            # Tokenize separator (no special tokens) - only if not using chat template
+            # Chat template already includes proper formatting
+            if self.use_chat_template:
+                sep_enc = []  # Chat template already includes generation prompt
+            else:
+                sep_enc = self.tokenizer.encode(self.separator, add_special_tokens=False)
             
             # Tokenize response (no special tokens, but add EOS at end)
             act_enc = self.tokenizer.encode(act, add_special_tokens=False)
             
-            # Instruction = command + separator (everything before response)
-            instruction_length = len(cmd_enc) + len(sep_enc)
+            # Instruction = formatted command + separator (everything before response)
+            instruction_length = len(inst_enc) + len(sep_enc)
             
-            # Full sequence = command + separator + response + EOS
-            full_sequence = cmd_enc + sep_enc + act_enc + [self.tokenizer.eos_token_id]
+            # Full sequence = instruction + separator + response + EOS
+            full_sequence = inst_enc + sep_enc + act_enc + [self.tokenizer.eos_token_id]
             
             all_input_ids.append(full_sequence)
             all_instruction_lengths.append(instruction_length)

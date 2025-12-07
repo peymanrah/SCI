@@ -21,8 +21,29 @@ from tqdm import tqdm
 class SCANEvaluator:
     """Evaluator for SCAN benchmark with exact match scoring."""
 
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, eval_config=None):
+        """
+        Args:
+            tokenizer: HuggingFace tokenizer
+            eval_config: Optional EvaluationConfig with generation settings
+        """
         self.tokenizer = tokenizer
+        self.eval_config = eval_config
+        
+        # Get generation settings from config or use defaults
+        if eval_config is not None:
+            self.max_generation_length = getattr(eval_config, 'max_generation_length', 512)
+            self.num_beams = getattr(eval_config, 'num_beams', 1)
+            self.do_sample = getattr(eval_config, 'do_sample', False)
+            self.repetition_penalty = getattr(eval_config, 'repetition_penalty', 1.0)
+            self.length_penalty = getattr(eval_config, 'length_penalty', 1.0)
+        else:
+            # Defaults for SCAN evaluation
+            self.max_generation_length = 512
+            self.num_beams = 1
+            self.do_sample = False
+            self.repetition_penalty = 1.0
+            self.length_penalty = 1.0
 
     def evaluate(self, model, test_dataloader, device='cuda'):
         """
@@ -83,7 +104,7 @@ class SCANEvaluator:
                     target_tokens = labels_i[valid_label_mask]
 
                     # CRITICAL #18: Use max_length to avoid context overflow
-                    max_output_tokens = 300  # SCAN length split max = 288 tokens
+                    max_output_tokens = self.max_generation_length
                     max_total_length = min(inst_length + max_output_tokens, 2048)
 
                     # Generate prediction from instruction
@@ -91,8 +112,10 @@ class SCANEvaluator:
                         input_ids=instruction_input_ids,
                         attention_mask=instruction_attention_mask,
                         max_length=max_total_length,
-                        do_sample=False,  # Greedy decoding
-                        num_beams=1,
+                        do_sample=self.do_sample,
+                        num_beams=self.num_beams,
+                        repetition_penalty=self.repetition_penalty,
+                        length_penalty=self.length_penalty,
                         eos_token_id=self.tokenizer.eos_token_id,
                         pad_token_id=self.tokenizer.pad_token_id,
                     )
