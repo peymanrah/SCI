@@ -10,6 +10,8 @@ Usage:
 import argparse
 import os
 import sys
+import random
+import numpy as np
 import torch
 
 # Add project root to path
@@ -74,6 +76,11 @@ def parse_args():
         default=None,
         help='Path to checkpoint to resume training from (e.g., checkpoints/best/training_state.pt)'
     )
+    parser.add_argument(
+        '--yes', '-y',
+        action='store_true',
+        help='Skip confirmation prompt (non-interactive mode)'
+    )
 
     return parser.parse_args()
 
@@ -122,12 +129,17 @@ def main():
         config.data.force_regenerate_pairs = True
         print("  Force regenerate pairs: ENABLED")
 
-    # Set random seed
+    # Set random seed for full reproducibility
     seed = getattr(config, 'seed', 42)
+    random.seed(seed)
+    np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    print(f"\nRandom seed: {seed}")
+        # Enable deterministic algorithms for reproducibility (may impact performance)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    print(f"\nRandom seed: {seed} (applied to random, numpy, torch)")
 
     # Print configuration summary
     # FIX: Use correct config paths (data.dataset/split, training.optimizer.base_lr, checkpointing.save_dir)
@@ -160,11 +172,14 @@ def main():
         print(f"Resuming from: {args.resume}")
     print("=" * 70)
 
-    # Confirm before training
-    response = input("\nProceed with training? [y/N]: ")
-    if response.lower() != 'y':
-        print("Training cancelled.")
-        return
+    # Confirm before training (skip if --yes flag is set)
+    if not args.yes:
+        response = input("\nProceed with training? [y/N]: ")
+        if response.lower() != 'y':
+            print("Training cancelled.")
+            return
+    else:
+        print("\nNon-interactive mode: proceeding with training...")
 
     # Initialize trainer
     print("\nInitializing trainer...")

@@ -52,23 +52,25 @@ class SCITrainer:
         self.model = SCIModel(config).to(self.device)
 
         # Initialize loss function with EOS weight
+        # FIX: Use getattr() since config.loss is a dataclass, not dict
         self.loss_fn = SCICombinedLoss(
             scl_weight=config.loss.scl_weight,
             ortho_weight=config.loss.ortho_weight,
             temperature=config.loss.scl_temperature,
-            eos_weight=config.loss.get('eos_weight', 2.0),
+            eos_weight=getattr(config.loss, 'eos_weight', 2.0),
             eos_token_id=self.model.tokenizer.eos_token_id,
         )
 
         # Initialize dataset - use data config section
+        # FIX: Use getattr() since config.data is a dataclass, not dict
         print(f"Loading {config.data.dataset} dataset...")
         self.train_dataset = SCANDataset(
             tokenizer=self.model.tokenizer,
             split_name=config.data.split,
             subset='train',  # Training always uses train split
             max_length=config.data.max_length,
-            cache_dir=config.data.get('pairs_cache_dir', '.cache/scan'),
-            force_regenerate_pairs=config.data.get('force_regenerate_pairs', False),
+            cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
+            force_regenerate_pairs=getattr(config.data, 'force_regenerate_pairs', False),
         )
 
         # Data collator - uses proper causal LM format with pair generation
@@ -108,15 +110,17 @@ class SCITrainer:
         self.scaler = GradScaler() if config.training.mixed_precision else None
 
         # SCL warmup
-        self.scl_warmup_epochs = config.loss.get('scl_warmup_epochs', 2)
+        # FIX: Use getattr() since config.loss is a dataclass, not dict
+        self.scl_warmup_epochs = getattr(config.loss, 'scl_warmup_epochs', 2)
 
         # Logging
-        self.use_wandb = WANDB_AVAILABLE and config.logging.get('use_wandb', False)
+        # FIX: Use getattr() since config.logging is a dataclass, not dict
+        self.use_wandb = WANDB_AVAILABLE and getattr(config.logging, 'use_wandb', False)
         if self.use_wandb:
             wandb.init(
                 project=config.logging.wandb_project,
                 config=self._config_to_dict(config),
-                tags=config.logging.get('wandb_tags', []),
+                tags=getattr(config.logging, 'wandb_tags', []),
             )
             wandb.watch(self.model, log='all', log_freq=100)
 
@@ -377,7 +381,8 @@ class SCITrainer:
             })
 
             # Log to wandb
-            if self.use_wandb and self.global_step % self.config.logging.get('log_every', 10) == 0:
+            # FIX: Use getattr() since config.logging is a dataclass, not dict
+            if self.use_wandb and self.global_step % getattr(self.config.logging, 'log_every', 10) == 0:
                 wandb.log({
                     'train/total_loss': losses['total_loss'].item(),
                     'train/lm_loss': losses['lm_loss'].item(),
@@ -411,8 +416,8 @@ class SCITrainer:
         else:
             print(f"\nStarting training for {self.config.training.max_epochs} epochs...")
         
-        # BUG #31 FIX: Configurable evaluation frequency
-        eval_freq = self.config.training.get('eval_freq', 1)  # Evaluate every N epochs
+        # FIX: Use getattr() instead of .get() since config.training is a dataclass, not dict
+        eval_freq = getattr(self.config.training, 'eval_freq', 1)  # Evaluate every N epochs
 
         for epoch in range(start_epoch, self.config.training.max_epochs):
             self.epoch = epoch
@@ -438,7 +443,8 @@ class SCITrainer:
                     print(f"  Eval Exact Match: {eval_metrics['exact_match']*100:.2f}%")
                     
                     # Log to wandb if available
-                    if WANDB_AVAILABLE and self.config.logging.get('use_wandb', False):
+                    # FIX: Use getattr() since config.logging is a dataclass, not dict
+                    if WANDB_AVAILABLE and getattr(self.config.logging, 'use_wandb', False):
                         wandb.log({
                             'eval/exact_match': eval_metrics['exact_match'],
                             'eval/token_accuracy': eval_metrics['token_accuracy'],
@@ -446,7 +452,8 @@ class SCITrainer:
                         })
 
             # Save checkpoint
-            if (epoch + 1) % self.config.training.get('save_every', 5) == 0:
+            # FIX: Use getattr() since config.training is a dataclass, not dict
+            if (epoch + 1) % getattr(self.config.training, 'save_every', 5) == 0:
                 self.save_checkpoint(f'epoch_{epoch+1}')
 
             # Save best model

@@ -60,7 +60,7 @@ class SCIEvaluator:
                 tokenizer=model.tokenizer,
                 split_name=dataset_config['split'],
                 subset=dataset_config.get('subset', 'test'),
-                max_length=self.config.evaluation.get('max_generation_length', 128),
+                max_length=getattr(self.config.evaluation, 'max_generation_length', 128),
             )
 
             # Evaluate
@@ -161,7 +161,7 @@ class SCIEvaluator:
         }
 
         # Optionally compute structural invariance
-        if self.config.evaluation.get('compute_structural_invariance', False):
+        if getattr(self.config.evaluation, 'compute_structural_invariance', False):
             struct_inv = self._compute_structural_invariance(model, dataset)
             metrics['structural_invariance'] = struct_inv
 
@@ -275,15 +275,16 @@ class SCIEvaluator:
         instruction_mask = torch.cat(padded_masks, dim=0)
 
         # Generate
-        max_length = self.config.evaluation.get('max_generation_length', 128)
-        num_beams = self.config.evaluation.get('num_beams', 1)
+        # FIX: Use getattr() since config.evaluation is a dataclass, not dict
+        max_length = getattr(self.config.evaluation, 'max_generation_length', 128)
+        num_beams = getattr(self.config.evaluation, 'num_beams', 1)
 
         generated_ids = model.generate(
             input_ids=instruction_ids,
             attention_mask=instruction_mask,
             max_length=max_length,
             num_beams=num_beams,
-            do_sample=self.config.evaluation.get('do_sample', False),
+            do_sample=getattr(self.config.evaluation, 'do_sample', False),
             pad_token_id=model.tokenizer.pad_token_id,
             eos_token_id=model.tokenizer.eos_token_id,
         )
