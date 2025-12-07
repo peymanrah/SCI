@@ -484,19 +484,20 @@ class SCIModel(nn.Module):
             )
             self.current_content_repr = content_repr
 
-        # Generate using base model (CBM injected via hooks)
-        generated_ids = self.base_model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_length=max_length,
-            **kwargs,
-        )
-
-        # Clear stored representations
-        self.current_structural_slots = None
-        self.current_content_repr = None
-
-        return generated_ids
+        # #70 FIX: Wrap in try/finally to clear representations even on exception
+        try:
+            # Generate using base model (CBM injected via hooks)
+            generated_ids = self.base_model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_length=max_length,
+                **kwargs,
+            )
+            return generated_ids
+        finally:
+            # Clear stored representations (always, even on exception)
+            self.current_structural_slots = None
+            self.current_content_repr = None
 
     def compute_orthogonality_loss(
         self,

@@ -37,6 +37,8 @@ class SCANEvaluator:
             self.do_sample = getattr(eval_config, 'do_sample', False)
             self.repetition_penalty = getattr(eval_config, 'repetition_penalty', 1.0)
             self.length_penalty = getattr(eval_config, 'length_penalty', 1.0)
+            # #69 FIX: Make max_model_length configurable instead of hardcoded 2048
+            self.max_model_length = getattr(eval_config, 'max_model_length', 2048)
         else:
             # Defaults for SCAN evaluation
             self.max_generation_length = 512
@@ -44,6 +46,7 @@ class SCANEvaluator:
             self.do_sample = False
             self.repetition_penalty = 1.0
             self.length_penalty = 1.0
+            self.max_model_length = 2048
 
     def evaluate(self, model, test_dataloader, device='cuda'):
         """
@@ -104,8 +107,9 @@ class SCANEvaluator:
                     target_tokens = labels_i[valid_label_mask]
 
                     # CRITICAL #18: Use max_length to avoid context overflow
+                    # #69 FIX: Use configurable max_model_length instead of hardcoded 2048
                     max_output_tokens = self.max_generation_length
-                    max_total_length = min(inst_length + max_output_tokens, 2048)
+                    max_total_length = min(inst_length + max_output_tokens, self.max_model_length)
 
                     # Generate prediction from instruction
                     outputs = model.generate(

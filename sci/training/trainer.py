@@ -18,7 +18,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.cuda.amp import GradScaler, autocast
-from transformers import get_linear_schedule_with_warmup, AdamW
+from torch.optim import AdamW  # #71 FIX: Use torch.optim.AdamW instead of deprecated transformers.AdamW
+from transformers import get_linear_schedule_with_warmup
 from typing import Dict, Optional
 from tqdm import tqdm
 import yaml

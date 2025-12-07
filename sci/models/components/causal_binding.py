@@ -56,11 +56,25 @@ class CausalBindingMechanism(nn.Module):
             f"d_model ({self.d_model}) must be divisible by num_heads ({self.num_heads})"
         self.head_dim = self.d_model // self.num_heads
 
-        # Input projections (for structural/content encoders with different d_model)
-        # These will be initialized dynamically when first used
-        self.structural_projection = None
-        self.content_projection = None
-        self._projections_initialized = False
+        # #74 FIX: Initialize projections in __init__ to avoid race conditions with DataParallel
+        # Get encoder dimensions from config with safe defaults
+        structural_d_model = getattr(config.model.structural_encoder, 'd_model', self.d_model)
+        content_d_model = getattr(config.model.content_encoder, 'd_model', self.d_model)
+        
+        # Project structural slots if dimension differs
+        if structural_d_model != self.d_model:
+            self.structural_projection = nn.Linear(structural_d_model, self.d_model)
+        else:
+            self.structural_projection = nn.Identity()
+
+        # Project content if dimension differs  
+        if content_d_model != self.d_model:
+            self.content_projection = nn.Linear(content_d_model, self.d_model)
+        else:
+            self.content_projection = nn.Identity()
+        
+        # Flag kept for backward compatibility but always True now
+        self._projections_initialized = True
 
         # 1. BINDING ATTENTION
         # Cross-attention: Query from structural slots, Key/Value from content
@@ -206,31 +220,7 @@ class CausalBindingMechanism(nn.Module):
             bound_repr: [batch, num_slots, d_model]
             attn_weights: [batch, num_heads, num_slots, 1] if return_attention
         """
-        batch_size, num_slots, structural_d_model = structural_slots.shape
-        content_d_model = content_repr.shape[-1]
-
-        # Initialize projections if needed
-        if not self._projections_initialized:
-            # Project structural slots if dimension differs
-            if structural_d_model != self.d_model:
-                self.structural_projection = nn.Linear(structural_d_model, self.d_model).to(
-                    device=structural_slots.device,
-                    dtype=structural_slots.dtype
-                )
-            else:
-                self.structural_projection = nn.Identity()
-
-            # Project content if dimension differs
-            if content_d_model != self.d_model:
-                self.content_projection = nn.Linear(content_d_model, self.d_model).to(
-                    device=content_repr.device,
-                    dtype=content_repr.dtype
-                )
-            else:
-                self.content_projection = nn.Identity()
-
-            self._projections_initialized = True
-
+        # #74 FIX: Projections are now initialized in __init__, no runtime initialization needed
         # Project to CBM d_model
         structural_slots = self.structural_projection(structural_slots)  # [batch, num_slots, d_model]
         content_repr = self.content_projection(content_repr)  # [batch, d_model]
