@@ -7,6 +7,8 @@ Implements:
 - Proper EOS handling during generation
 - Consistent padding/masking between training and evaluation
 - Detailed error analysis and visualization
+
+#92-98 FIX: Updated to use correct API for SCANDataset and SCANDataCollator
 """
 
 import argparse
@@ -121,11 +123,13 @@ def analyze_errors(errors, output_dir):
     print(f"  Analysis saved to: {analysis_path}")
 
 
-def evaluate_by_length(model, dataset, tokenizer, evaluator, device, batch_size):
+def evaluate_by_length(model, dataset, tokenizer, evaluator, device, batch_size, max_length=512):
     """
     Evaluate model performance by sequence length.
 
     This is particularly important for length generalization split.
+    
+    #94 FIX: Updated to use correct SCANDataset and SCANDataCollator constructors.
     """
     # Group samples by length
     length_groups = {}
@@ -143,12 +147,21 @@ def evaluate_by_length(model, dataset, tokenizer, evaluator, device, batch_size)
     for length in sorted(length_groups.keys()):
         samples = length_groups[length]
 
-        # Create temporary dataset
-        temp_dataset = SCANDataset(split='length', subset='test')
+        # #94 FIX: Create temporary dataset with correct constructor
+        temp_dataset = SCANDataset(
+            tokenizer=tokenizer,
+            split_name='length',
+            subset='test',
+            max_length=max_length,
+        )
         temp_dataset.data = samples
 
-        # Create dataloader
-        collator = SCANDataCollator(tokenizer, max_length=512)
+        # #93 FIX: Create collator with pair_generator (can be None for eval)
+        collator = SCANDataCollator(
+            tokenizer=tokenizer,
+            max_length=max_length,
+            pair_generator=None,  # Not needed for evaluation
+        )
         loader = DataLoader(
             temp_dataset,
             batch_size=batch_size,
@@ -185,12 +198,13 @@ def main():
     print(f"Loading config from {args.config}")
     config = load_config(args.config)
 
-    # Override split if specified
+    # Override split if specified - use dataclass attribute access
     if args.split:
-        config['data']['scan_split'] = args.split
+        config.data.split = args.split
 
-    # Setup output directory
-    output_dir = Path(args.output_dir) / f"{config['experiment']['name']}_{args.split}_{args.subset}"
+    # Setup output directory - use getattr for safe access
+    experiment_name = getattr(config, 'experiment_name', Path(args.config).stem)
+    output_dir = Path(args.output_dir) / f"{experiment_name}_{args.split}_{args.subset}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup device
@@ -200,19 +214,25 @@ def main():
     # Load tokenizer
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        config['model']['base_model'],
+        config.model.base_model_name,  # #95 FIX: Use correct config attribute
         cache_dir='.cache/models'
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
+    # #95 FIX: Get max_length from config with fallback
+    max_length = getattr(config.data, 'max_length', 512)
+
     # Load dataset
+    # #92 FIX: Pass tokenizer as required first argument to SCANDataset
     print(f"Loading SCAN dataset (split={args.split}, subset={args.subset})...")
     dataset = SCANDataset(
-        split=args.split,
+        tokenizer=tokenizer,
+        split_name=args.split,
         subset=args.subset,
-        cache_dir='.cache/datasets'
+        max_length=max_length,
+        cache_dir='.cache/scan',
     )
 
     # Limit samples if specified (for debugging)
@@ -222,9 +242,13 @@ def main():
 
     print(f"Dataset size: {len(dataset)} samples")
 
-    # Create data collator and dataloader
-    collator = SCANDataCollator(tokenizer, max_length=512)
-    batch_size = args.batch_size or config['training']['batch_size']
+    # #93 FIX: Create data collator with correct arguments
+    collator = SCANDataCollator(
+        tokenizer=tokenizer,
+        max_length=max_length,
+        pair_generator=None,  # Not needed for evaluation
+    )
+    batch_size = args.batch_size or config.training.batch_size
 
     dataloader = DataLoader(
         dataset,
@@ -240,13 +264,20 @@ def main():
     model = model.to(device)
 
     # Load checkpoint
+    # #97 FIX: Add null check for checkpoint loading
     print(f"Loading checkpoint from {args.checkpoint}")
     resumer = TrainingResumer(args.checkpoint)
-    resumer.load_checkpoint(model, optimizer=None, scheduler=None)
-    print(f"Loaded checkpoint from epoch {resumer.checkpoint['epoch']}")
+    resumer.load_checkpoint(model, optimizer=None, scheduler=None, device=device)
+    
+    # Check if checkpoint was loaded successfully
+    if resumer.checkpoint is not None:
+        epoch = resumer.checkpoint.get('epoch', 'unknown')
+        print(f"Loaded checkpoint from epoch {epoch}")
+    else:
+        print("WARNING: No checkpoint found, using randomly initialized model!")
 
-    # Create evaluator with eval config
-    eval_config = config.get('evaluation', {})
+    # Create evaluator with eval config - use getattr for dataclass
+    eval_config = getattr(config, 'evaluation', None)
     evaluator = SCANEvaluator(tokenizer, eval_config=eval_config)
 
     # Evaluate
@@ -291,7 +322,7 @@ def main():
         print(f"{'='*60}")
 
         results_by_length = evaluate_by_length(
-            model, dataset, tokenizer, evaluator, device, batch_size
+            model, dataset, tokenizer, evaluator, device, batch_size, max_length
         )
 
         # Save length analysis

@@ -138,21 +138,28 @@ class SCITrainer:
         self.best_exact_match = 0.0
         
         # #51 FIX: Add validation dataset (like train.py)
+        # #98 FIX: Handle missing validation split gracefully
         print(f"Loading validation dataset...")
-        self.val_dataset = SCANDataset(
-            tokenizer=self.model.tokenizer,
-            split_name=config.data.split,
-            subset='test',  # SCAN uses 'test' not 'val'
-            max_length=config.data.max_length,
-            cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
-        )
-        self.val_loader = DataLoader(
-            self.val_dataset,
-            batch_size=config.training.batch_size,
-            shuffle=False,
-            collate_fn=self.collator,
-            num_workers=0,
-        )
+        try:
+            self.val_dataset = SCANDataset(
+                tokenizer=self.model.tokenizer,
+                split_name=config.data.split,
+                subset='test',  # SCAN uses 'test' not 'val'
+                max_length=config.data.max_length,
+                cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
+            )
+            self.val_loader = DataLoader(
+                self.val_dataset,
+                batch_size=config.training.batch_size,
+                shuffle=False,
+                collate_fn=self.collator,
+                num_workers=0,
+            )
+        except Exception as e:
+            print(f"WARNING: Could not load validation dataset: {e}")
+            print("Training will proceed without validation.")
+            self.val_dataset = None
+            self.val_loader = None
         
         # #51 FIX: Add early stopping and overfitting detection (like train.py)
         es_config = getattr(config.training, 'early_stopping', None)
@@ -509,10 +516,11 @@ class SCITrainer:
             print(f"  Ortho: {train_metrics['ortho_loss']:.4f}")
 
             # #52 FIX: Run validation with correct SCANEvaluator API
+            # #98 FIX: Handle missing validation loader gracefully
             val_exact_match = 0.0
             val_loss = train_metrics['total_loss']  # Default to train loss if no eval
             
-            if (epoch + 1) % eval_freq == 0:
+            if (epoch + 1) % eval_freq == 0 and self.val_loader is not None:
                 print(f"  Running validation...")
                 # Compute validation loss
                 val_metrics = self._validate_epoch()
@@ -538,6 +546,8 @@ class SCITrainer:
                             'val/loss': val_loss,
                             'epoch': epoch + 1,
                         })
+            elif self.val_loader is None and (epoch + 1) % eval_freq == 0:
+                print(f"  Skipping validation (no validation dataset available)")
             
             # #51 FIX: Check early stopping based on exact match
             should_stop = self.early_stopping(val_exact_match, epoch)
