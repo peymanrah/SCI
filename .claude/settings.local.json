@@ -27,7 +27,8 @@
       "Bash(venvScriptspython.exe -m pytest tests/test_data_leakage.py::TestDataLeakagePrevention::test_labels_correctly_mask_instruction -v --tb=short)",
       "Bash(head:*)",
       "Bash(.venvScriptspython.exe -m pytest tests/ -v --tb=short)",
-      "Bash(.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)"
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
+      "Bash(git remote add:*)"
     ],
     "deny": [],
     "ask": []
