@@ -35,6 +35,8 @@ from sci.models.losses.combined_loss import SCICombinedLoss
 from sci.data.datasets.scan_dataset import SCANDataset
 from sci.data.scan_data_collator import SCANDataCollator
 from sci.data.data_leakage_checker import DataLeakageChecker
+from sci.training.early_stopping import EarlyStopping, OverfittingDetector
+from sci.evaluation.scan_evaluator import SCANEvaluator
 
 
 class SCITrainer:
@@ -132,6 +134,41 @@ class SCITrainer:
         self.global_step = 0
         self.epoch = 0
         self.best_loss = float('inf')
+        self.best_exact_match = 0.0
+        
+        # #51 FIX: Add validation dataset (like train.py)
+        print(f"Loading validation dataset...")
+        self.val_dataset = SCANDataset(
+            tokenizer=self.model.tokenizer,
+            split_name=config.data.split,
+            subset='test',  # SCAN uses 'test' not 'val'
+            max_length=config.data.max_length,
+            cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
+        )
+        self.val_loader = DataLoader(
+            self.val_dataset,
+            batch_size=config.training.batch_size,
+            shuffle=False,
+            collate_fn=self.collator,
+            num_workers=0,
+        )
+        
+        # #51 FIX: Add early stopping and overfitting detection (like train.py)
+        es_config = getattr(config.training, 'early_stopping', None)
+        self.early_stopping = EarlyStopping(
+            patience=getattr(es_config, 'patience', 5) if es_config else 5,
+            min_delta=getattr(es_config, 'min_delta', 0.001) if es_config else 0.001,
+            mode='max',  # Maximize exact match
+        )
+        self.overfitting_detector = OverfittingDetector(
+            threshold_ratio=getattr(es_config, 'overfitting_threshold', 1.5) if es_config else 1.5,
+            window_size=3,
+            min_epochs=5,
+        )
+        
+        # #52 FIX: Create evaluator with proper API (SCANEvaluator, not SCIEvaluator)
+        eval_config = getattr(config, 'evaluation', None)
+        self.evaluator = SCANEvaluator(self.model.tokenizer, eval_config=eval_config)
         
         # Run data leakage checks (required by SCI_ENGINEERING_STANDARDS.md)
         self._run_data_leakage_checks()
@@ -439,12 +476,15 @@ class SCITrainer:
 
     def train(self, evaluator=None):
         """
-        Full training loop.
+        Full training loop with validation and early stopping.
         
         Args:
-            evaluator: Optional SCIEvaluator instance for periodic evaluation
-                      (uses config.evaluation.datasets for eval splits)
+            evaluator: Optional evaluator instance. If None, uses self.evaluator.
+                      For SCANEvaluator, calls evaluate(model, dataloader, device).
         """
+        # Use provided evaluator or default
+        eval_instance = evaluator if evaluator is not None else self.evaluator
+        
         # Start from current epoch (allows resume from checkpoint)
         start_epoch = self.epoch
         if start_epoch > 0:
@@ -467,43 +507,107 @@ class SCITrainer:
             print(f"  SCL: {train_metrics['scl_loss']:.4f}")
             print(f"  Ortho: {train_metrics['ortho_loss']:.4f}")
 
-            # BUG #31 FIX: Run evaluation at configurable frequency
-            # FIX: Updated to use new SCIEvaluator API (no dataloader needed)
-            if evaluator is not None:
-                if (epoch + 1) % eval_freq == 0:
-                    print(f"  Running evaluation...")
-                    # SCIEvaluator.evaluate() uses config.evaluation.datasets
-                    eval_results = evaluator.evaluate(model=self.model)
+            # #52 FIX: Run validation with correct SCANEvaluator API
+            val_exact_match = 0.0
+            val_loss = train_metrics['total_loss']  # Default to train loss if no eval
+            
+            if (epoch + 1) % eval_freq == 0:
+                print(f"  Running validation...")
+                # Compute validation loss
+                val_metrics = self._validate_epoch()
+                val_loss = val_metrics['total_loss']
+                print(f"  Val Loss: {val_loss:.4f}")
+                
+                # #52 FIX: Use SCANEvaluator with correct API (model, dataloader, device)
+                if eval_instance is not None:
+                    eval_results = eval_instance.evaluate(
+                        self.model, 
+                        self.val_loader, 
+                        device=self.device
+                    )
+                    val_exact_match = eval_results['exact_match']
+                    print(f"  Val Exact Match: {val_exact_match*100:.2f}%")
+                    print(f"  Val Token Accuracy: {eval_results['token_accuracy']*100:.2f}%")
                     
-                    # Get first dataset's metrics for logging
-                    first_dataset = list(eval_results.keys())[0] if eval_results else None
-                    if first_dataset:
-                        eval_metrics = eval_results[first_dataset]
-                        print(f"  Eval Exact Match: {eval_metrics['exact_match']*100:.2f}%")
-                        
-                        # Log to wandb if available
-                        # FIX: Use getattr() since config.logging is a dataclass, not dict
-                        if WANDB_AVAILABLE and getattr(self.config.logging, 'use_wandb', False):
-                            wandb.log({
-                                'eval/exact_match': eval_metrics['exact_match'],
-                                'eval/token_accuracy': eval_metrics['token_accuracy'],
-                                'epoch': epoch + 1,
-                            })
+                    # Log to wandb if available
+                    if self.use_wandb:
+                        wandb.log({
+                            'eval/exact_match': val_exact_match,
+                            'eval/token_accuracy': eval_results['token_accuracy'],
+                            'val/loss': val_loss,
+                            'epoch': epoch + 1,
+                        })
+            
+            # #51 FIX: Check early stopping based on exact match
+            should_stop = self.early_stopping(val_exact_match, epoch)
+            if should_stop:
+                print(f"\nEarly stopping triggered at epoch {epoch+1}")
+                print(f"Best exact match: {self.best_exact_match*100:.2f}%")
+                break
+            
+            # #51 FIX: Check for overfitting
+            is_overfitting, loss_ratio = self.overfitting_detector.update(
+                train_metrics['total_loss'], val_loss, epoch
+            )
+            if is_overfitting:
+                print(f"\nOverfitting detected at epoch {epoch+1}")
+                print(f"Train/Val loss ratio: {loss_ratio:.4f}")
+                break
 
             # Save checkpoint
             # FIX: Use getattr() since config.training is a dataclass, not dict
             if (epoch + 1) % getattr(self.config.training, 'save_every', 5) == 0:
                 self.save_checkpoint(f'epoch_{epoch+1}')
 
-            # Save best model
-            if train_metrics['total_loss'] < self.best_loss:
-                self.best_loss = train_metrics['total_loss']
+            # Save best model based on exact match (not loss)
+            if val_exact_match > self.best_exact_match:
+                self.best_exact_match = val_exact_match
                 self.save_checkpoint('best')
-                print(f"  New best loss: {self.best_loss:.4f}")
+                print(f"  New best exact match: {self.best_exact_match*100:.2f}%")
+            elif train_metrics['total_loss'] < self.best_loss:
+                self.best_loss = train_metrics['total_loss']
 
         # Final save
         self.save_checkpoint('final')
         print(f"\nTraining complete!")
+        print(f"Best exact match: {self.best_exact_match*100:.2f}%")
+    
+    def _validate_epoch(self):
+        """Run validation for one epoch and return metrics."""
+        self.model.eval()
+        total_loss = 0
+        total_lm_loss = 0
+        num_batches = 0
+        
+        with torch.no_grad():
+            for batch in self.val_loader:
+                input_ids = batch['input_ids'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+                labels = batch['labels'].to(self.device)
+                instruction_mask = batch.get('instruction_mask')
+                if instruction_mask is not None:
+                    instruction_mask = instruction_mask.to(self.device)
+                
+                outputs = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    instruction_mask=instruction_mask,
+                    return_dict=True,
+                )
+                
+                outputs['labels'] = labels
+                losses = self.loss_fn(model_outputs=outputs, pair_labels=None)
+                
+                total_loss += losses['total_loss'].item()
+                total_lm_loss += losses['lm_loss'].item()
+                num_batches += 1
+        
+        self.model.train()
+        return {
+            'total_loss': total_loss / max(num_batches, 1),
+            'lm_loss': total_lm_loss / max(num_batches, 1),
+        }
 
     def save_checkpoint(self, name: str):
         """Save model checkpoint."""
@@ -537,7 +641,22 @@ class SCITrainer:
             model_path = os.path.dirname(checkpoint_path)
         
         print(f"Loading model from: {model_path}")
-        self.model = self.model.from_pretrained(model_path, config=self.config).to(self.device)
+        # #55 FIX: Load state dict directly instead of from_pretrained
+        # SCIModel doesn't have from_pretrained like HuggingFace models
+        state_dict_path = os.path.join(model_path, 'pytorch_model.bin')
+        if os.path.exists(state_dict_path):
+            state_dict = torch.load(state_dict_path, map_location=self.device)
+            self.model.load_state_dict(state_dict)
+        else:
+            # Try loading as config + model.pt format
+            model_file = os.path.join(model_path, 'model.pt')
+            if os.path.exists(model_file):
+                state_dict = torch.load(model_file, map_location=self.device)
+                self.model.load_state_dict(state_dict)
+            else:
+                raise FileNotFoundError(f"No model weights found in {model_path}")
+        
+        self.model.to(self.device)
         
         # Load training state
         state_path = os.path.join(model_path, 'training_state.pt')
