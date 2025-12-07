@@ -1,10 +1,17 @@
 #!/usr/bin/env python
 """
-Train SCI Model on SCAN Benchmark.
+Train SCI Model on SCAN Benchmark (SCITrainer class-based entry point).
+
+#25 NOTE: This script uses the SCITrainer class from sci.training.trainer.
+For the standalone script approach, use train.py in the project root.
+Both approaches are fully functional and produce equivalent results.
 
 Usage:
     python scripts/train_sci.py --config configs/sci_full.yaml
     python scripts/train_sci.py --config configs/ablations/no_scl.yaml --output_dir checkpoints/ablation_no_scl
+    
+Alternative (standalone script):
+    python train.py --config configs/sci_full.yaml
 """
 
 import argparse

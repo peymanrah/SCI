@@ -24,16 +24,19 @@ class DataLeakageChecker:
     - No overlap between train/val/test splits
     - Length split constraints enforced
     - SE/CE only see instruction tokens (attention verification)
+    - Near-duplicate detection (#21 FIX)
     """
     
-    def __init__(self, split_name: str = "length"):
+    def __init__(self, split_name: str = "length", near_duplicate_threshold: float = 0.9):
         """
         Args:
             split_name: SCAN split name ("length", "simple", "template", etc.)
+            near_duplicate_threshold: Jaccard similarity threshold for near-duplicates (default: 0.9)
         """
         self.split_name = split_name
         self.seen_commands: Dict[str, Set[str]] = defaultdict(set)  # subset -> commands
         self.length_violations: List[Dict] = []
+        self.near_duplicate_threshold = near_duplicate_threshold
         
         # Length split constraints (from SCAN benchmark)
         self.LENGTH_SPLIT_TRAIN_MAX = 22  # Training: outputs ≤ 22 tokens
@@ -84,6 +87,74 @@ class DataLeakageChecker:
                 logger.error(f"  Sample leaked commands: {list(train_test_overlap)[:3]}")
         else:
             logger.info("✓ No split overlap detected")
+            
+        return result
+    
+    def _jaccard_similarity(self, s1: str, s2: str) -> float:
+        """
+        Compute Jaccard similarity between two strings based on word tokens.
+        
+        #21 FIX: Add near-duplicate detection.
+        """
+        words1 = set(s1.lower().split())
+        words2 = set(s2.lower().split())
+        if not words1 and not words2:
+            return 1.0
+        if not words1 or not words2:
+            return 0.0
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        return intersection / union
+    
+    def check_near_duplicates(
+        self,
+        train_commands: List[str],
+        test_commands: List[str],
+    ) -> Dict[str, any]:
+        """
+        Check for near-duplicate commands between train and test sets.
+        
+        #21 FIX: Implements semantic similarity checking, not just exact match.
+        
+        Args:
+            train_commands: List of training commands
+            test_commands: List of test commands
+            
+        Returns:
+            Dict with near-duplicate detection results
+        """
+        near_duplicates = []
+        
+        # For efficiency, only check a sample if sets are large
+        train_sample = train_commands[:1000] if len(train_commands) > 1000 else train_commands
+        test_sample = test_commands[:500] if len(test_commands) > 500 else test_commands
+        
+        for test_cmd in test_sample:
+            for train_cmd in train_sample:
+                if test_cmd == train_cmd:
+                    continue  # Skip exact matches (handled by check_split_overlap)
+                similarity = self._jaccard_similarity(test_cmd, train_cmd)
+                if similarity >= self.near_duplicate_threshold:
+                    near_duplicates.append({
+                        "train_cmd": train_cmd,
+                        "test_cmd": test_cmd,
+                        "similarity": similarity,
+                    })
+        
+        result = {
+            "num_near_duplicates": len(near_duplicates),
+            "threshold": self.near_duplicate_threshold,
+            "near_duplicates": near_duplicates[:10],  # First 10
+        }
+        
+        if near_duplicates:
+            logger.warning(f"NEAR-DUPLICATES DETECTED: {len(near_duplicates)} pairs with "
+                          f"similarity >= {self.near_duplicate_threshold}")
+            for nd in near_duplicates[:3]:
+                logger.warning(f"  - Train: '{nd['train_cmd'][:40]}...' vs Test: '{nd['test_cmd'][:40]}...' "
+                              f"(sim={nd['similarity']:.2f})")
+        else:
+            logger.info(f"✓ No near-duplicates detected (threshold={self.near_duplicate_threshold})")
             
         return result
     

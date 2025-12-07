@@ -117,10 +117,12 @@ class StructuralEncoder(nn.Module):
         })
 
         # Slot Attention for pooling to fixed representation
+        # #18 FIX: Pass epsilon from config for numerical stability
         self.slot_attention = SlotAttention(
             num_slots=self.num_slots,
             d_model=self.d_model,
-            num_iterations=3,  # Iterative refinement
+            num_iterations=config.model.structural_encoder.slot_attention.num_iterations,
+            epsilon=config.model.structural_encoder.slot_attention.epsilon,
         )
 
         # Final layer norm

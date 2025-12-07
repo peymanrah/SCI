@@ -299,6 +299,13 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = output_dir / 'checkpoints'
     checkpoint_dir.mkdir(exist_ok=True)
+    
+    # #8 FIX: Use log_dir and results_dir from config
+    log_dir = output_dir / getattr(config.logging, 'log_dir', 'logs')
+    log_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = output_dir / getattr(config.logging, 'results_dir', 'results')
+    results_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Logs: {log_dir}, Results: {results_dir}")
 
     # Initialize Weights & Biases
     if not args.no_wandb:

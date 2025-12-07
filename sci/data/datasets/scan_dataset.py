@@ -209,47 +209,8 @@ class SCANDataset(Dataset):
         return self.pair_generator.get_structure_statistics()
 
 
-@dataclass
-class SCANCollator:
-    """
-    DEPRECATED: Use SCANDataCollator from sci.data.scan_data_collator instead.
-    
-    This collator expects pre-tokenized tensors but SCANDataset returns raw strings.
-    The SCANDataCollator properly handles string inputs and creates causal LM format.
-    
-    Kept for backward compatibility with any code that uses tensor-based approach.
-    """
-
-    dataset: SCANDataset
-
-    def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
-        """
-        Collate batch and add pair labels.
-
-        Args:
-            batch: List of examples from __getitem__
-
-        Returns:
-            Dictionary with batched tensors including pair_labels
-        """
-        # Extract indices
-        indices = [example["idx"] for example in batch]
-
-        # Stack tensors
-        input_ids = torch.stack([example["input_ids"] for example in batch])
-        attention_mask = torch.stack([example["attention_mask"] for example in batch])
-        labels = torch.stack([example["labels"] for example in batch])
-
-        # Get pair labels for this batch
-        pair_labels = self.dataset.pair_generator.get_batch_pair_labels(indices)
-
-        return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-            "pair_labels": pair_labels,
-            "indices": torch.tensor(indices),
-        }
+# #10 FIX: Removed deprecated SCANCollator class.
+# Use SCANDataCollator from sci.data.scan_data_collator instead.
 
 
 if __name__ == "__main__":
