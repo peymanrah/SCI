@@ -153,12 +153,14 @@ def main():
     print("✓ Results saved")
 
     # Compare with expected results if available
-    if hasattr(config, 'expected_results'):
+    if config.expected_results is not None:
         print("\n" + "=" * 70)
         print("Comparison with Expected Results")
         print("=" * 70)
 
         for key, expected_value in config.expected_results.__dict__.items():
+            if expected_value == 0.0:
+                continue  # Skip unset expected values
             # Try to find matching result
             for dataset_name, metrics in results.items():
                 if key in dataset_name.lower():

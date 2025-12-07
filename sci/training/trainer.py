@@ -404,12 +404,17 @@ class SCITrainer:
             eval_loader: Optional DataLoader for evaluation
             evaluator: Optional evaluator instance (e.g., SCANEvaluator)
         """
-        print(f"\nStarting training for {self.config.training.max_epochs} epochs...")
+        # Start from current epoch (allows resume from checkpoint)
+        start_epoch = self.epoch
+        if start_epoch > 0:
+            print(f"\nResuming training from epoch {start_epoch + 1} to {self.config.training.max_epochs}...")
+        else:
+            print(f"\nStarting training for {self.config.training.max_epochs} epochs...")
         
         # BUG #31 FIX: Configurable evaluation frequency
         eval_freq = self.config.training.get('eval_freq', 1)  # Evaluate every N epochs
 
-        for epoch in range(self.config.training.max_epochs):
+        for epoch in range(start_epoch, self.config.training.max_epochs):
             self.epoch = epoch
 
             # Train epoch
@@ -469,6 +474,48 @@ class SCITrainer:
         }, os.path.join(save_path, 'training_state.pt'))
 
         print(f"  Saved checkpoint: {save_path}")
+
+    def load_checkpoint(self, checkpoint_path: str):
+        """
+        Load checkpoint and resume training state.
+        
+        Args:
+            checkpoint_path: Path to checkpoint directory containing:
+                - Model weights (as save_pretrained format)
+                - training_state.pt with optimizer/scheduler/epoch state
+        """
+        # Load model weights
+        model_path = checkpoint_path
+        if os.path.isfile(checkpoint_path):
+            # If path is to training_state.pt, get directory
+            model_path = os.path.dirname(checkpoint_path)
+        
+        print(f"Loading model from: {model_path}")
+        self.model = self.model.from_pretrained(model_path, config=self.config).to(self.device)
+        
+        # Load training state
+        state_path = os.path.join(model_path, 'training_state.pt')
+        if os.path.exists(state_path):
+            state = torch.load(state_path, map_location=self.device)
+            
+            self.epoch = state['epoch']
+            self.global_step = state['global_step']
+            self.best_loss = state['best_loss']
+            
+            if 'optimizer' in state:
+                self.optimizer.load_state_dict(state['optimizer'])
+                # Move optimizer state to correct device
+                for param_state in self.optimizer.state.values():
+                    for k, v in param_state.items():
+                        if isinstance(v, torch.Tensor):
+                            param_state[k] = v.to(self.device)
+            
+            if 'scheduler' in state:
+                self.scheduler.load_state_dict(state['scheduler'])
+            
+            print(f"  Loaded training state from: {state_path}")
+        else:
+            print(f"  Warning: training_state.pt not found, only model weights loaded")
 
 
 if __name__ == "__main__":

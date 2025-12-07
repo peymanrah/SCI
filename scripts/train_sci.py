@@ -68,6 +68,12 @@ def parse_args():
         action='store_true',
         help='Force regeneration of structural pairs cache'
     )
+    parser.add_argument(
+        '--resume',
+        type=str,
+        default=None,
+        help='Path to checkpoint to resume training from (e.g., checkpoints/best/training_state.pt)'
+    )
 
     return parser.parse_args()
 
@@ -84,8 +90,9 @@ def main():
     config = load_config(args.config)
 
     # Override config with command-line arguments
+    # FIX: Use correct config paths (checkpointing.save_dir, not training.checkpoint_dir)
     if args.output_dir:
-        config.training.checkpoint_dir = args.output_dir
+        config.checkpointing.save_dir = args.output_dir
         print(f"  Output directory: {args.output_dir}")
 
     if args.max_epochs:
@@ -96,8 +103,11 @@ def main():
         config.training.batch_size = args.batch_size
         print(f"  Batch size: {args.batch_size}")
 
+    # FIX: Use correct config path (training.optimizer.base_lr, not training.learning_rate)
     if args.learning_rate:
-        config.training.learning_rate = args.learning_rate
+        config.training.optimizer.base_lr = args.learning_rate
+        # Also update the default lr for compatibility
+        config.training.optimizer.lr = args.learning_rate
         print(f"  Learning rate: {args.learning_rate}")
 
     if args.no_wandb:
@@ -107,8 +117,9 @@ def main():
     if args.seed:
         config.seed = args.seed
 
+    # FIX: Use correct config path (data.force_regenerate_pairs, not training.force_regenerate_pairs)
     if args.force_regenerate_pairs:
-        config.training.force_regenerate_pairs = True
+        config.data.force_regenerate_pairs = True
         print("  Force regenerate pairs: ENABLED")
 
     # Set random seed
@@ -119,16 +130,17 @@ def main():
     print(f"\nRandom seed: {seed}")
 
     # Print configuration summary
+    # FIX: Use correct config paths (data.dataset/split, training.optimizer.base_lr, checkpointing.save_dir)
     print("\n" + "=" * 70)
     print("Configuration Summary")
     print("=" * 70)
-    print(f"Model: {config.model.base_model}")
-    print(f"Dataset: {config.training.dataset}")
-    print(f"Split: {config.training.split}")
+    print(f"Model: {config.model.base_model_name}")
+    print(f"Dataset: {config.data.dataset}")
+    print(f"Split: {config.data.split}")
     print(f"Batch size: {config.training.batch_size}")
     print(f"Max epochs: {config.training.max_epochs}")
-    print(f"Learning rate: {config.training.learning_rate}")
-    print(f"SCL weight: {config.loss.scl_weight} (warmup: {config.loss.scl_warmup_epochs} epochs)")
+    print(f"Learning rate: {config.training.optimizer.base_lr}")
+    print(f"SCL weight: {config.loss.scl_weight} (warmup: {getattr(config.loss, 'scl_warmup_epochs', 2)} epochs)")
 
     print("\nSCI Components:")
     print(f"  Structural Encoder: {'ENABLED' if config.model.structural_encoder.enabled else 'DISABLED'}")
@@ -142,7 +154,10 @@ def main():
     if config.model.causal_binding.enabled:
         print(f"  - CBM injection layers: {config.model.causal_binding.injection_layers}")
 
-    print(f"\nCheckpoint directory: {config.training.checkpoint_dir}")
+    # FIX: Use correct config path (checkpointing.save_dir, not training.checkpoint_dir)
+    print(f"\nCheckpoint directory: {config.checkpointing.save_dir}")
+    if args.resume:
+        print(f"Resuming from: {args.resume}")
     print("=" * 70)
 
     # Confirm before training
@@ -154,6 +169,13 @@ def main():
     # Initialize trainer
     print("\nInitializing trainer...")
     trainer = SCITrainer(config)
+
+    # Resume from checkpoint if specified
+    if args.resume:
+        print(f"\nLoading checkpoint from: {args.resume}")
+        trainer.load_checkpoint(args.resume)
+        print(f"  Resumed from epoch {trainer.epoch + 1}, global step {trainer.global_step}")
+        print(f"  Best loss so far: {trainer.best_loss:.4f}")
 
     # Start training
     print("\n" + "=" * 70)
@@ -179,7 +201,8 @@ def main():
     print("Training Complete!")
     print("=" * 70)
     print(f"Best loss: {trainer.best_loss:.4f}")
-    print(f"Checkpoints saved to: {config.training.checkpoint_dir}")
+    # FIX: Use correct config path (checkpointing.save_dir, not training.checkpoint_dir)
+    print(f"Checkpoints saved to: {config.checkpointing.save_dir}")
 
 
 if __name__ == "__main__":

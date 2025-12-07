@@ -153,6 +153,7 @@ class LossConfig:
     task_weight: float = 1.0
     scl_weight: float = 0.3
     scl_warmup_steps: int = 5000
+    scl_warmup_epochs: int = 2  # Number of epochs for SCL warmup schedule
     ortho_weight: float = 0.1
     eos_weight: float = 2.0
     scl_temperature: float = 0.07
@@ -193,6 +194,17 @@ class EvaluationConfig:
     do_sample: bool = False       # Greedy decoding (no sampling)
     repetition_penalty: float = 1.0  # No penalty (let model learn naturally)
     length_penalty: float = 1.0      # No penalty
+    compute_structural_invariance: bool = False  # Optional: compute structural invariance metric
+    # Default evaluation datasets (used by evaluate.py)
+    datasets: List[Dict[str, Any]] = field(default_factory=lambda: [
+        {'name': 'scan', 'split': 'length', 'subset': 'test'}
+    ])
+    
+    # CRITICAL #20: Dict-style access support
+    def __getitem__(self, key):
+        return getattr(self, key)
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
 
 @dataclass
@@ -222,6 +234,16 @@ class CheckpointingConfig:
 
 
 @dataclass
+class ExpectedResultsConfig:
+    """Expected results for validation (optional, used by evaluate.py)."""
+    length: float = 0.0  # Expected exact match on length split
+    simple: float = 0.0  # Expected exact match on simple split
+    template: float = 0.0  # Expected exact match on template split
+    addprim_jump: float = 0.0  # Expected exact match on addprim_jump split
+    addprim_turn_left: float = 0.0  # Expected exact match on addprim_turn_left split
+
+
+@dataclass
 class SCIConfig:
     """Complete SCI configuration."""
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -231,6 +253,7 @@ class SCIConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     checkpointing: CheckpointingConfig = field(default_factory=CheckpointingConfig)
+    expected_results: Optional[ExpectedResultsConfig] = None  # Optional: for validation
 
     # Random seeds for reproducibility
     seed: int = 42
@@ -368,6 +391,14 @@ def _merge_configs(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, 
 
 def _dict_to_config(config_dict: Dict[str, Any]) -> SCIConfig:
     """Convert dictionary to SCIConfig dataclass."""
+    
+    # Normalize field names for backwards compatibility
+    if 'model' in config_dict and isinstance(config_dict['model'], dict):
+        model_dict = config_dict['model']
+        # Handle base_model -> base_model_name
+        if 'base_model' in model_dict and 'base_model_name' not in model_dict:
+            model_dict['base_model_name'] = model_dict.pop('base_model')
+    
     # Helper function to convert nested dicts
     def convert_section(section_dict: Dict[str, Any], section_class):
         if section_dict is None:
@@ -375,6 +406,10 @@ def _dict_to_config(config_dict: Dict[str, Any]) -> SCIConfig:
 
         kwargs = {}
         for key, value in section_dict.items():
+            # Skip unknown keys (for forward compatibility)
+            if key not in section_class.__dataclass_fields__:
+                logger.warning(f"Ignoring unknown config field: {key}")
+                continue
             if isinstance(value, dict):
                 # Find the corresponding field type
                 field_type = section_class.__dataclass_fields__[key].type
@@ -403,6 +438,12 @@ def _dict_to_config(config_dict: Dict[str, Any]) -> SCIConfig:
             config_kwargs[section_name] = convert_section(
                 config_dict[section_name], section_class
             )
+
+    # Handle expected_results if present (optional)
+    if 'expected_results' in config_dict:
+        config_kwargs['expected_results'] = convert_section(
+            config_dict['expected_results'], ExpectedResultsConfig
+        )
 
     # Add seed if present
     if 'seed' in config_dict:
