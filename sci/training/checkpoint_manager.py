@@ -20,6 +20,28 @@ class CheckpointManager:
         self.save_total_limit = save_total_limit
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
+    def _serialize_config(self, config):
+        """
+        Serialize config to dict for checkpointing.
+        
+        #44 FIX: Properly handle dataclass configs.
+        """
+        if isinstance(config, dict):
+            return config
+        elif hasattr(config, 'to_dict'):
+            return config.to_dict()
+        else:
+            # Fallback for dataclasses
+            from dataclasses import asdict, is_dataclass
+            if is_dataclass(config):
+                return asdict(config)
+            else:
+                # Last resort - try vars()
+                try:
+                    return vars(config)
+                except TypeError:
+                    return str(config)
+
     def save_checkpoint(self, model, optimizer, scheduler, epoch, step,
                        metrics, config, training_state):
         """Save full training checkpoint."""
@@ -40,8 +62,8 @@ class CheckpointManager:
             # Metrics history
             'metrics_history': metrics,
 
-            # Configuration
-            'config': config if isinstance(config, dict) else vars(config),
+            # Configuration - #44 FIX: Properly serialize dataclass configs
+            'config': self._serialize_config(config),
 
             # Metadata
             'timestamp': datetime.now().isoformat(),

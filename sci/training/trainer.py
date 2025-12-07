@@ -361,7 +361,11 @@ class SCITrainer:
                 pair_labels = pair_labels.to(self.device)
 
             # Forward pass with mixed precision
-            with autocast() if self.scaler else torch.enable_grad():
+            # #43 FIX: Use contextlib.nullcontext instead of torch.enable_grad()
+            # and use proper autocast device_type
+            from contextlib import nullcontext
+            amp_context = torch.amp.autocast('cuda') if self.scaler else nullcontext()
+            with amp_context:
                 outputs = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,

@@ -299,14 +299,19 @@ if __name__ == "__main__":
     instruction_mask = (example['labels'] == -100)
     print(f"  Instruction length: {instruction_mask.sum().item()} tokens")
 
-    # Test collator
+    # Test collator - #47 FIX: Use SCANDataCollator instead of deprecated SCANCollator
     print("\n" + "=" * 60)
     print("Testing Collator")
     print("=" * 60)
 
     from torch.utils.data import DataLoader
+    from sci.data.scan_data_collator import SCANDataCollator
 
-    collator = SCANCollator(dataset)
+    collator = SCANDataCollator(
+        tokenizer=tokenizer,
+        max_length=128,
+        pair_generator=dataset.pair_generator,
+    )
 
     loader = DataLoader(
         dataset,
@@ -319,13 +324,16 @@ if __name__ == "__main__":
 
     print(f"Batch keys: {batch.keys()}")
     print(f"Input IDs shape: {batch['input_ids'].shape}")
-    print(f"Pair labels shape: {batch['pair_labels'].shape}")
-    print(f"\nPair labels matrix:")
-    print(batch['pair_labels'])
-
-    # Count positive pairs
-    num_positive = (batch['pair_labels'].sum() - batch['pair_labels'].diagonal().sum()).item()
-    print(f"\nPositive pairs in batch: {num_positive}")
+    
+    # Get pair labels from pair_generator
+    if 'commands' in batch:
+        pair_labels = dataset.pair_generator.get_batch_pair_labels(batch['commands'])
+        print(f"Pair labels shape: {pair_labels.shape}")
+        print(f"\nPair labels matrix:")
+        print(pair_labels)
+        # Count positive pairs
+        num_positive = (pair_labels.sum() - pair_labels.diagonal().sum()).item()
+        print(f"\nPositive pairs in batch: {num_positive}")
 
     # Test structure stats
     print("\n" + "=" * 60)

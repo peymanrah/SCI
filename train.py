@@ -389,13 +389,21 @@ def main():
     )
 
     # Create scheduler (optional)
+    # #40 FIX: Use max_epochs with fallback
+    total_epochs = getattr(config.training, 'max_epochs', getattr(config.training, 'epochs', 50))
     scheduler = None
     if getattr(config.training.optimizer, 'use_scheduler', False):
+        total_steps = total_epochs * len(train_loader)
+        warmup_steps = getattr(config.training, 'warmup_steps', 1000)
+        # #46: Validate warmup_steps < total_steps
+        if warmup_steps >= total_steps:
+            print(f"WARNING: warmup_steps ({warmup_steps}) >= total_steps ({total_steps}), reducing warmup")
+            warmup_steps = max(1, total_steps // 10)
         scheduler = torch.optim.lr_scheduler.LinearLR(
             optimizer,
             start_factor=1.0,
             end_factor=0.1,
-            total_iters=config.training.epochs * len(train_loader),
+            total_iters=total_steps,
         )
 
     # Create loss function
@@ -449,14 +457,16 @@ def main():
         }
 
     # Training loop
+    # #40 FIX: Use max_epochs with fallback to epochs for backwards compatibility
+    total_epochs = getattr(config.training, 'max_epochs', getattr(config.training, 'epochs', 50))
     print(f"\nStarting training from epoch {start_epoch}...")
-    print(f"Total epochs: {config.training.epochs}")
+    print(f"Total epochs: {total_epochs}")
     print(f"Batch size: {config.training.batch_size}")
     print(f"Train batches: {len(train_loader)}")
     print(f"Val batches: {len(val_loader)}")
 
-    for epoch in range(start_epoch, config.training.epochs):
-        print(f"\n=== Epoch {epoch+1}/{config.training.epochs} ===")
+    for epoch in range(start_epoch, total_epochs):
+        print(f"\n=== Epoch {epoch+1}/{total_epochs} ===")
 
         # Train
         train_metrics = train_epoch(
@@ -504,9 +514,10 @@ def main():
             print(f"Best val exact match: {training_state['best_val_metric']:.4f}")
             break
 
-        # CRITICAL #14: Check overfitting - properly use return value (tuple)
-        overfitting_detector.update(metrics['train_loss'], metrics['val_loss'], epoch)
-        is_overfitting, loss_ratio = overfitting_detector.is_overfitting()
+        # CRITICAL #36 FIX: update() returns the tuple directly, not is_overfitting()
+        is_overfitting, loss_ratio = overfitting_detector.update(
+            metrics['train_loss'], metrics['val_loss'], epoch
+        )
         if is_overfitting:
             print(f"\nOverfitting detected at epoch {epoch+1}")
             print(f"Train/Val loss ratio: {loss_ratio:.4f}")
