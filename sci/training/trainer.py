@@ -433,13 +433,13 @@ class SCITrainer:
             'ortho_loss': total_ortho_loss / num_batches,
         }
 
-    def train(self, eval_loader=None, evaluator=None):
+    def train(self, evaluator=None):
         """
         Full training loop.
         
         Args:
-            eval_loader: Optional DataLoader for evaluation
-            evaluator: Optional evaluator instance (e.g., SCANEvaluator)
+            evaluator: Optional SCIEvaluator instance for periodic evaluation
+                      (uses config.evaluation.datasets for eval splits)
         """
         # Start from current epoch (allows resume from checkpoint)
         start_epoch = self.epoch
@@ -464,24 +464,27 @@ class SCITrainer:
             print(f"  Ortho: {train_metrics['ortho_loss']:.4f}")
 
             # BUG #31 FIX: Run evaluation at configurable frequency
-            if eval_loader is not None and evaluator is not None:
+            # FIX: Updated to use new SCIEvaluator API (no dataloader needed)
+            if evaluator is not None:
                 if (epoch + 1) % eval_freq == 0:
                     print(f"  Running evaluation...")
-                    eval_metrics = evaluator.evaluate(
-                        model=self.model,
-                        test_dataloader=eval_loader,
-                        device=self.device,
-                    )
-                    print(f"  Eval Exact Match: {eval_metrics['exact_match']*100:.2f}%")
+                    # SCIEvaluator.evaluate() uses config.evaluation.datasets
+                    eval_results = evaluator.evaluate(model=self.model)
                     
-                    # Log to wandb if available
-                    # FIX: Use getattr() since config.logging is a dataclass, not dict
-                    if WANDB_AVAILABLE and getattr(self.config.logging, 'use_wandb', False):
-                        wandb.log({
-                            'eval/exact_match': eval_metrics['exact_match'],
-                            'eval/token_accuracy': eval_metrics['token_accuracy'],
-                            'epoch': epoch + 1,
-                        })
+                    # Get first dataset's metrics for logging
+                    first_dataset = list(eval_results.keys())[0] if eval_results else None
+                    if first_dataset:
+                        eval_metrics = eval_results[first_dataset]
+                        print(f"  Eval Exact Match: {eval_metrics['exact_match']*100:.2f}%")
+                        
+                        # Log to wandb if available
+                        # FIX: Use getattr() since config.logging is a dataclass, not dict
+                        if WANDB_AVAILABLE and getattr(self.config.logging, 'use_wandb', False):
+                            wandb.log({
+                                'eval/exact_match': eval_metrics['exact_match'],
+                                'eval/token_accuracy': eval_metrics['token_accuracy'],
+                                'epoch': epoch + 1,
+                            })
 
             # Save checkpoint
             # FIX: Use getattr() since config.training is a dataclass, not dict
