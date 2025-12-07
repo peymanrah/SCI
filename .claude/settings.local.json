@@ -28,7 +28,8 @@
       "Bash(head:*)",
       "Bash(.venvScriptspython.exe -m pytest tests/ -v --tb=short)",
       "Bash(.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
-      "Bash(git remote add:*)"
+      "Bash(git remote add:*)",
+      "Bash(set FILTER_BRANCH_SQUELCH_WARNING=1)"
     ],
     "deny": [],
     "ask": []
