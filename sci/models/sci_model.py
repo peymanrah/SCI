@@ -124,6 +124,35 @@ class SCIModel(nn.Module):
         self.current_edge_weights = None
         self.current_instruction_mask = None
 
+    def _init_encoder_projection(self, encoder, name: str):
+        """
+        V8 FIX #5: Eagerly initialize input_projection for encoder.
+        
+        This avoids lazy initialization in forward() which can cause
+        device/dtype mismatches in DDP/multi-GPU setups.
+        
+        Args:
+            encoder: StructuralEncoder or ContentEncoder instance
+            name: Name for logging
+        """
+        import torch.nn as nn
+        
+        # Get embedding dimension from shared embedding
+        embedding_dim = self.shared_embedding.embedding_dim  # 2048 for TinyLlama
+        encoder_d_model = encoder.d_model
+        
+        if embedding_dim != encoder_d_model:
+            # Create projection layer with proper dimensions
+            encoder.input_projection = nn.Linear(embedding_dim, encoder_d_model)
+            print(f"  - {name} input projection: {embedding_dim} -> {encoder_d_model}")
+        else:
+            encoder.input_projection = nn.Identity()
+            print(f"  - {name} input projection: Identity (dims match)")
+        
+        # Mark as initialized so forward() doesn't try to re-init
+        encoder.embedding_dim = embedding_dim
+        encoder._projection_initialized = True
+
     def _initialize_sci_components(self):
         """Initialize Structural Encoder, Content Encoder, and CBM."""
 
@@ -133,6 +162,8 @@ class SCIModel(nn.Module):
             self.structural_encoder = StructuralEncoder(self.config)
             # Share embedding with TinyLlama
             self.structural_encoder.embedding = self.shared_embedding
+            # V8 FIX #5: Eagerly initialize input_projection to avoid DDP race
+            self._init_encoder_projection(self.structural_encoder, "Structural Encoder")
             # Move to same device as base model
             self.structural_encoder = self.structural_encoder.to(self.device)
             print(f"  - Num slots: {self.structural_encoder.num_slots}")
@@ -147,6 +178,8 @@ class SCIModel(nn.Module):
             self.content_encoder = ContentEncoder(self.config)
             # Share embedding with TinyLlama
             self.content_encoder.embedding = self.shared_embedding
+            # V8 FIX #5: Eagerly initialize input_projection to avoid DDP race
+            self._init_encoder_projection(self.content_encoder, "Content Encoder")
             # Move to same device as base model
             self.content_encoder = self.content_encoder.to(self.device)
             print(f"  - Num layers: {self.content_encoder.num_layers}")

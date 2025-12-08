@@ -366,6 +366,8 @@ class HardNegativeMiner:
     ) -> torch.Tensor:
         """
         Select hard negatives based on similarity.
+        
+        V8 FIX #4: Vectorized implementation to avoid O(B²) Python loop.
 
         Args:
             structural_repr: [batch, d_model]
@@ -383,34 +385,39 @@ class HardNegativeMiner:
         similarity = torch.matmul(repr_norm, repr_norm.T)  # [batch, batch]
 
         # Create negative mask (different structure)
-        negative_mask = (pair_labels == 0) & ~torch.eye(batch_size, dtype=torch.bool, device=structural_repr.device)
+        self_mask = torch.eye(batch_size, dtype=torch.bool, device=structural_repr.device)
+        negative_mask = (pair_labels == 0) & ~self_mask
 
-        # Get similarities for negative pairs
+        # Get similarities for negative pairs (set non-negatives to -inf)
         negative_similarities = similarity.clone()
         negative_similarities[~negative_mask] = -float('inf')
 
         # CRITICAL #10: Add bounds checking for hard negative mining
-        # For each anchor, select top-k hardest negatives
-        num_negatives_per_sample = negative_mask.sum(dim=1)
+        # Count available negatives per sample
+        num_negatives_per_sample = negative_mask.sum(dim=1)  # [batch]
         avg_negatives = num_negatives_per_sample.float().mean().item()
 
-        # Compute number of hard negatives, clamped to available negatives
+        # Compute number of hard negatives to keep
         num_hard = max(1, int(avg_negatives * self.hard_negative_ratio))
 
-        # Create hard negative mask
+        # V8 FIX #4: VECTORIZED top-k selection
+        # Get top-k indices for each row (vectorized)
+        # Clamp k to max available across batch to avoid errors
+        max_available = num_negatives_per_sample.max().item()
+        k = min(num_hard, max(1, int(max_available)))
+        
+        # Get top-k most similar negatives per row
+        _, top_k_indices = torch.topk(negative_similarities, k=k, dim=1)  # [batch, k]
+        
+        # Create hard negative mask using scatter
         hard_negative_mask = torch.zeros_like(pair_labels, dtype=torch.bool)
-
-        for i in range(batch_size):
-            # Get number of available negatives for this sample
-            num_available = num_negatives_per_sample[i].item()
-
-            if num_available > 0:
-                # Clamp k to not exceed available negatives
-                k = min(num_hard, num_available)
-
-                # Get top-k most similar negatives for this row
-                _, hard_indices = torch.topk(negative_similarities[i], k=k, dim=0)
-                hard_negative_mask[i, hard_indices] = True
+        
+        # Scatter 1s at top-k positions for each row
+        batch_indices = torch.arange(batch_size, device=structural_repr.device).unsqueeze(1).expand(-1, k)
+        hard_negative_mask[batch_indices, top_k_indices] = True
+        
+        # Mask out any positions that weren't actually negatives (from -inf padding)
+        hard_negative_mask = hard_negative_mask & negative_mask
 
         return hard_negative_mask.long()
 

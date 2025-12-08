@@ -344,6 +344,17 @@ class SCITrainer:
         # Check if this is a baseline run (no SCI components)
         is_baseline = not getattr(self.config.model.structural_encoder, 'enabled', True)
         
+        # V8 FIX #11: Include generation config for full traceability
+        eval_config = getattr(self.config, 'evaluation', None)
+        generation_config = {
+            "max_new_tokens": getattr(eval_config, 'max_generation_length', 300) if eval_config else 300,
+            "temperature": getattr(eval_config, 'temperature', 1.0) if eval_config else 1.0,
+            "top_k": getattr(eval_config, 'top_k', 50) if eval_config else 50,
+            "top_p": getattr(eval_config, 'top_p', 1.0) if eval_config else 1.0,
+            "repetition_penalty": getattr(eval_config, 'repetition_penalty', 1.0) if eval_config else 1.0,
+            "do_sample": getattr(eval_config, 'do_sample', False) if eval_config else False,
+        }
+        
         fairness_info = {
             "run_type": "baseline" if is_baseline else "sci_full",
             "total_params": total_params,
@@ -358,6 +369,7 @@ class SCITrainer:
             "mixed_precision": self.config.training.mixed_precision,
             "max_length": self.config.data.max_length,
             "seed": self.config.seed,
+            "generation_config": generation_config,  # V8 FIX #11
         }
         
         print(f"\n{'='*70}")
@@ -375,6 +387,9 @@ class SCITrainer:
         print(f"  Mixed Precision:    {fairness_info['mixed_precision']}")
         print(f"  Max Length:         {fairness_info['max_length']}")
         print(f"  Seed:               {fairness_info['seed']}")
+        print(f"  Generation Config:")
+        for k, v in fairness_info['generation_config'].items():
+            print(f"    {k}: {v}")
         print(f"{'='*70}\n")
         
         # Log to wandb if available

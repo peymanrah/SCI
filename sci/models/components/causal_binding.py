@@ -113,7 +113,12 @@ class CausalBindingMechanism(nn.Module):
         # Learned position queries for broadcast (dynamically extended if needed)
         # Base max_seq_len, but can be extended at runtime
         self.base_max_seq_len = 1024  # Support longer sequences for SCAN length split
-        self.position_queries = nn.Parameter(torch.randn(1, self.base_max_seq_len, self.d_model) * 0.02)
+        
+        # V8 FIX #6: Use Xavier initialization for better convergence
+        # randn * 0.02 is arbitrary; Xavier scales properly with d_model
+        position_queries = torch.empty(1, self.base_max_seq_len, self.d_model)
+        nn.init.xavier_uniform_(position_queries[0])  # Xavier on [seq, d_model]
+        self.position_queries = nn.Parameter(position_queries)
 
         # Injection adapters for each decoder layer
         # These prepare the bound representation for injection

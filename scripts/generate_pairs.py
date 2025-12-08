@@ -218,15 +218,28 @@ def main():
     print(f"Pair matrix is a {train_pairs.shape[0]}x{train_pairs.shape[1]} binary matrix")
     print("[OK] Pair matrix cached successfully. Validation skipped (matrix format).")
 
-    # Generate test pairs
-    print(f"\n{'-'*70}")
-    print("Generating test pairs...")
-    try:
-        test_pairs = generate_pairs_for_split(split_name="length", subset="test")
-        print(f"Test pair matrix shape: {test_pairs.shape}")
-    except Exception as e:
-        print(f"\nWarning: Failed to generate test pairs: {e}")
-        test_pairs = None
+    # V8 FIX #9: Skip test pair generation by default (wasteful for inference)
+    # SCL loss is training-only; test pairs are never used
+    # Only generate if explicitly requested via --include-test flag
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--include-test', action='store_true', 
+                        help='Also generate test pairs (usually not needed)')
+    args, _ = parser.parse_known_args()
+    
+    test_pairs = None
+    if args.include_test:
+        print(f"\n{'-'*70}")
+        print("Generating test pairs (--include-test flag set)...")
+        try:
+            test_pairs = generate_pairs_for_split(split_name="length", subset="test")
+            print(f"Test pair matrix shape: {test_pairs.shape}")
+        except Exception as e:
+            print(f"\nWarning: Failed to generate test pairs: {e}")
+            test_pairs = None
+    else:
+        print(f"\n[INFO] Skipping test pair generation (not needed for training).")
+        print(f"       Use --include-test flag if you need test pairs.")
 
     print(f"\n{'='*70}")
     print("[OK][OK][OK] PAIR GENERATION COMPLETE [OK][OK][OK]")
