@@ -52,9 +52,12 @@ class StructuralEncoderConfig:
 
 @dataclass
 class ContentEncoderConfig:
-    """Configuration for Content Encoder."""
+    """Configuration for Content Encoder.
+    
+    NOTE: Lightweight (2 layers) since content is well-represented in pretrained embeddings.
+    """
     enabled: bool = True
-    num_layers: int = 12
+    num_layers: int = 2  # Lightweight - pretrained embeddings already capture content
     d_model: int = 512
     num_heads: int = 8
     dim_feedforward: int = 2048
@@ -65,10 +68,14 @@ class ContentEncoderConfig:
 
 @dataclass
 class CausalBindingConfig:
-    """Configuration for Causal Binding Mechanism."""
+    """Configuration for Causal Binding Mechanism.
+    
+    For TinyLlama (22 layers): inject at ~27%, ~50%, ~73% depth.
+    """
     enabled: bool = True
     d_model: int = 2048  # TinyLlama hidden size
-    injection_layers: List[int] = field(default_factory=lambda: [6, 12, 18])
+    # For TinyLlama (22 layers): inject at early (~27%), mid (~50%), late (~73%) layers
+    injection_layers: List[int] = field(default_factory=lambda: [6, 11, 16])
     num_heads: int = 8
     dropout: float = 0.1
     use_causal_intervention: bool = True
