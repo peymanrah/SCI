@@ -27,23 +27,31 @@ model:
 
   # Structural Encoder
   structural_encoder:
-    num_slots: 8  # Number of structural slots
-    num_layers: 12
-    d_model: 512
-    num_heads: 8
-    dim_feedforward: 2048
+    num_slots: 8  # 8 slots for SCAN complexity (max ~9 compositional elements)
+    num_layers: 12  # Deep for hierarchical abstraction
+    d_model: 512  # Balanced capacity/efficiency
+    num_heads: 8  # 64-dim heads (512/8)
+    dim_feedforward: 2048  # 4x d_model
     dropout: 0.1
 
+    # AbstractionLayer - THE KEY INNOVATION
+    # Learns token-wise structuralness scores in [0,1]
     abstraction_layer:
-      hidden_multiplier: 2
-      residual_init: 0.1
+      hidden_multiplier: 2  # MLP hidden = d_model * 2 = 1024
+      residual_init: 0.1    # Small init encourages strong abstraction
       temperature: 0.1
       dropout: 0.1
-      injection_layers: [3, 6, 9]  # Inject at these encoder layers
+      injection_layers: [3, 6, 9]  # Multi-scale: 25%, 50%, 75% depth
+
+    # Slot Attention pools variable-length to fixed slots
+    slot_attention:
+      num_iterations: 3  # Iterative slot refinement
+      epsilon: 1e-8      # Numerical stability
 
   # Content Encoder
+  # NOTE: Lightweight (2 layers) since content is well-represented in pretrained embeddings
   content_encoder:
-    num_layers: 12
+    num_layers: 2  # Lightweight - pretrained embeddings already capture content
     d_model: 512
     num_heads: 8
     dim_feedforward: 2048
@@ -52,9 +60,11 @@ model:
 
   # Causal Binding Mechanism
   causal_binding:
-    injection_layers: [6, 12, 18]  # Inject into TinyLlama at these layers
+    # For TinyLlama (22 layers): inject at ~27%, ~50%, ~73% depth
+    injection_layers: [6, 11, 16]  # Inject into TinyLlama at early/mid/late layers
     num_heads: 8
     dropout: 0.1
+    use_causal_intervention: true
 
 # Training
 training:
