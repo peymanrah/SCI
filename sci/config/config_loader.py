@@ -25,6 +25,7 @@ class SlotAttentionConfig:
     """Configuration for Slot Attention.
     
     Parameters:
+        num_slots: Number of slots for attention (passed from StructuralEncoderConfig)
         num_iterations: Number of iterative refinement steps (default: 3)
         epsilon: Small value for numerical stability in softmax (default: 1e-8)
         hidden_dim: Hidden dimension for slot MLP (default: None, uses d_model)
@@ -32,6 +33,7 @@ class SlotAttentionConfig:
     num_iterations: int = 3
     epsilon: float = 1e-8
     hidden_dim: int = None  # #100 FIX: Add hidden_dim for completeness
+    # #103 NOTE: num_slots is passed from StructuralEncoderConfig, not stored here
 
 
 @dataclass

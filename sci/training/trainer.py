@@ -432,16 +432,22 @@ class SCITrainer:
                 loss = losses['total_loss']
 
             # Backward pass
+            # #108 FIX: Track gradient norm for debugging
             if self.scaler:
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                 self.optimizer.step()
+            
+            # Track gradient norm history (for debugging)
+            if not hasattr(self, 'grad_norm_history'):
+                self.grad_norm_history = []
+            self.grad_norm_history.append(grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm)
 
             self.scheduler.step()
             self.optimizer.zero_grad()

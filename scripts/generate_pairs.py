@@ -24,7 +24,20 @@ from sci.data.scan_loader import load_scan
 
 
 def generate_pairs_for_split(split_name: str = "length", subset: str = "train"):
-    """Generate pairs for a specific SCAN split."""
+    """Generate pairs for a specific SCAN split.
+    
+    #106 FIX: Add validation for split_name and subset parameters.
+    """
+    # #106 FIX: Validate split_name
+    valid_splits = ['simple', 'length', 'template', 'addprim_jump', 'addprim_turn_left']
+    if split_name not in valid_splits:
+        raise ValueError(f"Invalid split_name '{split_name}'. Must be one of: {valid_splits}")
+    
+    # #106 FIX: Validate subset
+    valid_subsets = ['train', 'test']
+    if subset not in valid_subsets:
+        raise ValueError(f"Invalid subset '{subset}'. Must be one of: {valid_subsets}")
+    
     print(f"\n{'='*70}")
     print(f"Generating pairs for SCAN {split_name}/{subset}")
     print(f"{'='*70}")
