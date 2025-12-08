@@ -446,15 +446,18 @@ class SCITrainer:
 
             # Backward pass
             # #108 FIX: Track gradient norm for debugging
+            # Read gradient_clip from config (primary) or optimizer.max_grad_norm (fallback)
+            max_grad_norm = getattr(self.config.training, 'gradient_clip',
+                                   getattr(self.config.training.optimizer, 'max_grad_norm', 1.0))
             if self.scaler:
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.optimizer)
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
                 loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
                 self.optimizer.step()
             
             # Track gradient norm history (for debugging)

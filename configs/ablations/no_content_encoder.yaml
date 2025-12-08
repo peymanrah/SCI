@@ -5,41 +5,100 @@
 seed: 42
 
 model:
-  base_model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  base_model_name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  d_model: 2048
+  num_decoder_layers: 22
+
+  position_encoding:
+    type: "rotary"
+    max_length: 2048  # Must match sci_full.yaml for fair comparison
+    base: 10000
 
   structural_encoder:
     enabled: true
     num_slots: 8
     num_layers: 12
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.15
+
     abstraction_layer:
+      hidden_multiplier: 2
+      residual_init: 0.1
+      dropout: 0.2
       injection_layers: [3, 6, 9]
 
+    slot_attention:
+      num_iterations: 6
+      epsilon: 1e-8
+
   content_encoder:
-    enabled: false  # DISABLED
+    enabled: false  # DISABLED - This is the ablation
+    num_layers: 2
+    d_model: 512
+    num_heads: 8
+    dim_feedforward: 2048
+    dropout: 0.1
+    pooling: "mean"
 
   causal_binding:
     enabled: true
     d_model: 2048
+    num_heads: 8
+    dropout: 0.15
     injection_layers: [6, 11, 16]
+    use_causal_intervention: true
 
-training:
+# Data Configuration (separate section)
+data:
   dataset: "scan"
   split: "length"
+  max_length: 512
+  scl_ratio: 0.5
+  num_workers: 4
+  use_chat_template: true
+
+# Training Configuration
+training:
   batch_size: 32
-  max_epochs: 50
-  learning_rate: 2e-5
-  sci_learning_rate: 5e-5  # ADDED
-  fp16: true
-  checkpoint_dir: "checkpoints/ablation_no_ce"
+  gradient_accumulation_steps: 2
+  max_epochs: 100  # Must match sci_full.yaml for fair comparison
+  gradient_clip: 0.5
+  warmup_steps: 1000
+  mixed_precision: true
+  eval_freq: 1
+  save_every: 10
 
+  optimizer:
+    type: "AdamW"
+    base_lr: 2.0e-5
+    sci_lr: 6.0e-5
+    lr: 2.0e-5
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+    eps: 1e-8
+
+  scheduler:
+    type: "cosine"
+    num_training_steps: 50000
+    num_warmup_steps: 1000
+
+# Loss Configuration
 loss:
-  lm_weight: 1.0
-  scl_weight: 0.3
-  ortho_weight: 0.0  # N/A without CE
+  task_weight: 1.0
+  scl_weight: 0.5
+  scl_warmup_epochs: 3
+  scl_warmup_steps: 5000
+  scl_temperature: 0.05
+  ortho_weight: 0.0  # N/A without CE - no content to orthogonalize
+  eos_weight: 3.0
 
+# Evaluation Configuration
 evaluation:
   batch_size: 64
-  max_generation_length: 300  # ADDED
+  max_generation_length: 300
+  beam_size: 1
   num_beams: 1
   do_sample: false
   repetition_penalty: 1.0
@@ -47,10 +106,20 @@ evaluation:
   datasets:
     - {name: "scan", split: "length", subset: "test"}
 
+# Checkpointing Configuration
+checkpointing:
+  save_dir: "checkpoints/ablation_no_ce"
+  keep_last_n: 3
+
+# Logging Configuration
 logging:
+  use_wandb: true
   wandb_project: "SCI-Nature"
   wandb_tags: ["ablation", "no_content_encoder"]
   log_dir: "logs/ablation_no_ce"
+  results_dir: "results/ablation_no_ce"
+  log_every_n_steps: 100
 
+# Expected Results
 expected_results:
   scan_length_ood: 0.60

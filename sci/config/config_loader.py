@@ -12,11 +12,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AbstractionLayerConfig:
-    """Configuration for AbstractionLayer."""
+    """Configuration for AbstractionLayer.
+    
+    Higher dropout (0.2) for this novel module following NeuroGen pattern.
+    """
     hidden_multiplier: int = 2
     residual_init: float = 0.1
     temperature: float = 0.1
-    dropout: float = 0.1
+    dropout: float = 0.2  # NeuroGen: Higher dropout for novel structural module
     injection_layers: List[int] = field(default_factory=lambda: [3, 6, 9])
 
 
@@ -26,11 +29,11 @@ class SlotAttentionConfig:
     
     Parameters:
         num_slots: Number of slots for attention (passed from StructuralEncoderConfig)
-        num_iterations: Number of iterative refinement steps (default: 3)
+        num_iterations: Number of iterative refinement steps (NeuroGen: 6 optimal)
         epsilon: Small value for numerical stability in softmax (default: 1e-8)
         hidden_dim: Hidden dimension for slot MLP (default: None, uses d_model)
     """
-    num_iterations: int = 3
+    num_iterations: int = 6  # NeuroGen transfer: 6 iterations for complex compositions
     epsilon: float = 1e-8
     hidden_dim: int = None  # #100 FIX: Add hidden_dim for completeness
     # #103 NOTE: num_slots is passed from StructuralEncoderConfig, not stored here
@@ -45,7 +48,7 @@ class StructuralEncoderConfig:
     d_model: int = 512
     num_heads: int = 8
     dim_feedforward: int = 2048
-    dropout: float = 0.1
+    dropout: float = 0.15  # NeuroGen transfer: better OOD regularization
     abstraction_layer: AbstractionLayerConfig = field(default_factory=AbstractionLayerConfig)
     slot_attention: SlotAttentionConfig = field(default_factory=SlotAttentionConfig)
 
@@ -195,14 +198,17 @@ class TrainingConfig:
 
 @dataclass
 class LossConfig:
-    """Loss function weights and parameters."""
+    """Loss function weights and parameters.
+    
+    NeuroGen Transfer: Sharper temperature, stronger SCL weight, more EOS emphasis.
+    """
     task_weight: float = 1.0
-    scl_weight: float = 0.3
+    scl_weight: float = 0.5  # NeuroGen: stronger structural learning signal
     scl_warmup_steps: int = 5000
-    scl_warmup_epochs: int = 2  # Number of epochs for SCL warmup schedule
+    scl_warmup_epochs: int = 3  # NeuroGen: longer warmup for stability
     ortho_weight: float = 0.1
-    eos_weight: float = 2.0
-    scl_temperature: float = 0.07
+    eos_weight: float = 3.0  # NeuroGen: reliable sequence termination
+    scl_temperature: float = 0.05  # NeuroGen: sharper structural discrimination
 
     # CRITICAL #20: Dict-style access support
     def __getitem__(self, key):
@@ -290,11 +296,17 @@ class CheckpointingConfig:
 @dataclass
 class ExpectedResultsConfig:
     """Expected results for validation (optional, used by evaluate.py)."""
+    # Standard split names
     length: float = 0.0  # Expected exact match on length split
     simple: float = 0.0  # Expected exact match on simple split
     template: float = 0.0  # Expected exact match on template split
     addprim_jump: float = 0.0  # Expected exact match on addprim_jump split
     addprim_turn_left: float = 0.0  # Expected exact match on addprim_turn_left split
+    # Alternative naming used in configs
+    scan_length_id: float = 0.0  # In-distribution on length split
+    scan_length_ood: float = 0.0  # Out-of-distribution on length split
+    scan_simple: float = 0.0  # Simple split accuracy
+    structural_invariance: float = 0.0  # Structural invariance metric
 
 
 @dataclass

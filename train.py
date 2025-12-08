@@ -191,8 +191,9 @@ def train_epoch(model, train_loader, optimizer, scheduler, criterion,
 
         # Step optimizer every grad_accum_steps batches
         if (batch_idx + 1) % grad_accum_steps == 0 or (batch_idx + 1) == len(train_loader):
-            # Gradient clipping
-            max_grad_norm = getattr(config.training.optimizer, 'max_grad_norm', 1.0)
+            # Gradient clipping - read from training.gradient_clip (primary) or optimizer.max_grad_norm (fallback)
+            max_grad_norm = getattr(config.training, 'gradient_clip', 
+                                   getattr(config.training.optimizer, 'max_grad_norm', 1.0))
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
 
             optimizer.step()
@@ -418,6 +419,8 @@ def main():
         scl_weight=config.loss.scl_weight,
         ortho_weight=config.loss.ortho_weight,
         temperature=config.loss.scl_temperature,
+        eos_weight=getattr(config.loss, 'eos_weight', 2.0),
+        eos_token_id=tokenizer.eos_token_id,
     )
 
     # Create evaluator with eval config

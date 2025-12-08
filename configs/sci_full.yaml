@@ -14,12 +14,14 @@ model:
   num_decoder_layers: 22
 
   # Positional Encoding (RoPE for length generalization)
+  # NeuroGen Transfer: 2048 max_length for safe extrapolation margin
   position_encoding:
     type: "rotary"
-    max_length: 1024  # Support prompt + long outputs (288+ tokens for length split)
+    max_length: 2048  # Increased from 1024 (NeuroGen: larger margin for length split)
     base: 10000
 
   # Structural Encoder - ENABLED
+  # NeuroGen Transfer: Module-specific dropout rates
   structural_encoder:
     enabled: true
     num_slots: 8  # Number of abstract structural slots
@@ -27,37 +29,41 @@ model:
     d_model: 512   # SE dimension
     num_heads: 8
     dim_feedforward: 2048
-    dropout: 0.1
+    dropout: 0.15  # Encoder layers dropout (NeuroGen: OOD regularization)
 
     # AbstractionLayer - THE KEY INNOVATION
+    # Higher dropout for novel module (NeuroGen: TIB-like component)
     abstraction_layer:
       hidden_multiplier: 2  # MLP hidden size = d_model * multiplier
       residual_init: 0.1    # Initial residual gate value
-      dropout: 0.1
+      dropout: 0.2          # Higher dropout for novel module (NeuroGen pattern)
       injection_layers: [3, 6, 9]  # Inject AbstractionLayer at these SE layers
 
     # Slot Attention pooling
+    # NeuroGen Transfer: 6 iterations for complex compositional structures
     slot_attention:
-      num_iterations: 3
+      num_iterations: 6  # Increased from 3 (NeuroGen empirical finding)
       epsilon: 1e-8
 
   # Content Encoder - ENABLED
+  # Lower dropout - refining pretrained embeddings (already regularized)
   content_encoder:
     enabled: true
     num_layers: 2    # Lightweight (refines shared embeddings)
     d_model: 512
     num_heads: 8
     dim_feedforward: 2048
-    dropout: 0.1
+    dropout: 0.1     # Lower dropout - pretrained embeddings already regularized
     pooling: "mean"  # Pool to [batch, d_model]
     use_orthogonal_projection: false  # Use loss-based orthogonality instead
 
   # Causal Binding Mechanism - ENABLED
+  # Medium dropout - binding must generalize but uses pretrained projections
   causal_binding:
     enabled: true
     d_model: 2048    # TinyLlama dimension
     num_heads: 8
-    dropout: 0.1
+    dropout: 0.15    # Medium dropout for binding generalization
     injection_layers: [6, 11, 16]  # Inject at early, middle, late TinyLlama layers
     use_causal_intervention: true
 
@@ -71,19 +77,21 @@ data:
   use_chat_template: true  # Use chat template for TinyLlama-Chat model
 
 # Training Configuration
+# NeuroGen Transfer: Longer training, larger effective batch, tighter gradient clip
 training:
   batch_size: 32
-  max_epochs: 50
-  gradient_clip: 1.0
+  gradient_accumulation_steps: 2  # Effective batch = 64 (NeuroGen: larger batch for contrastive)
+  max_epochs: 100  # Increased from 50 (NeuroGen: length split needs more epochs)
+  gradient_clip: 0.5  # Tighter clipping (NeuroGen: stability with contrastive loss)
   warmup_steps: 1000
   mixed_precision: true  # Use fp16
   eval_freq: 1           # BUG #31 FIX: Evaluate every N epochs (1 = every epoch)
-  save_every: 5          # Save checkpoint every N epochs
+  save_every: 10         # Save checkpoint every N epochs
 
   optimizer:
     type: "AdamW"
     base_lr: 2.0e-5      # Base model learning rate
-    sci_lr: 5.0e-5       # SCI modules learning rate (2.5x higher)
+    sci_lr: 6.0e-5       # SCI modules learning rate (3x higher - NeuroGen transfer)
     lr: 2.0e-5           # Default LR (for backwards compatibility)
     weight_decay: 0.01
     betas: [0.9, 0.999]
@@ -95,13 +103,15 @@ training:
     num_warmup_steps: 1000
 
 # Loss Configuration
+# NeuroGen Transfer: Sharper temperature, stronger SCL weight, more EOS emphasis
 loss:
   task_weight: 1.0
-  scl_weight: 0.3
+  scl_weight: 0.5  # Increased from 0.3 (NeuroGen: stronger structural learning)
   scl_warmup_steps: 5000
+  scl_warmup_epochs: 3  # Increased from 2 (NeuroGen: longer warmup)
   ortho_weight: 0.1
-  eos_weight: 2.0
-  scl_temperature: 0.07
+  eos_weight: 3.0  # Increased from 2.0 (NeuroGen: reliable sequence termination)
+  scl_temperature: 0.05  # Decreased from 0.07 (NeuroGen: sharper structural discrimination)
 
 # Evaluation Configuration
 evaluation:

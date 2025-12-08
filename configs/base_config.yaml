@@ -20,9 +20,10 @@ model:
   projection_dim: 2048
 
   # Positional Encoding
+  # NeuroGen Transfer: 2048 max_length for safe extrapolation margin
   position_encoding:
     type: "rotary"  # or "alibi"
-    max_length: 512
+    max_length: 2048  # Increased from 512 (NeuroGen: larger margin for length split)
     base: 10000  # RoPE base
 
   # Structural Encoder
@@ -32,20 +33,22 @@ model:
     d_model: 512  # Balanced capacity/efficiency
     num_heads: 8  # 64-dim heads (512/8)
     dim_feedforward: 2048  # 4x d_model
-    dropout: 0.1
+    dropout: 0.15  # Increased from 0.1 (NeuroGen: better OOD regularization)
 
     # AbstractionLayer - THE KEY INNOVATION
     # Learns token-wise structuralness scores in [0,1]
+    # Higher dropout for novel module (NeuroGen: TIB-like component)
     abstraction_layer:
       hidden_multiplier: 2  # MLP hidden = d_model * 2 = 1024
       residual_init: 0.1    # Small init encourages strong abstraction
       temperature: 0.1
-      dropout: 0.1
+      dropout: 0.2          # Higher dropout for novel module (NeuroGen pattern)
       injection_layers: [3, 6, 9]  # Multi-scale: 25%, 50%, 75% depth
 
     # Slot Attention pools variable-length to fixed slots
+    # NeuroGen Transfer: 6 iterations for complex compositional structures
     slot_attention:
-      num_iterations: 3  # Iterative slot refinement
+      num_iterations: 6  # Increased from 3 (NeuroGen empirical finding)
       epsilon: 1e-8      # Numerical stability
 
   # Content Encoder
@@ -63,21 +66,27 @@ model:
     # For TinyLlama (22 layers): inject at ~27%, ~50%, ~73% depth
     injection_layers: [6, 11, 16]  # Inject into TinyLlama at early/mid/late layers
     num_heads: 8
-    dropout: 0.1
+    dropout: 0.15  # NeuroGen: binding must generalize
     use_causal_intervention: true
 
 # Training
+# NeuroGen Transfer: Longer training, tighter gradient clip
 training:
   batch_size: 32
-  max_epochs: 50
-  gradient_clip: 1.0
+  gradient_accumulation_steps: 2  # Effective batch = 64
+  max_epochs: 100  # NeuroGen: Full convergence
+  gradient_clip: 0.5  # NeuroGen: Tighter clipping
   warmup_steps: 1000
   mixed_precision: true  # Use fp16
+  eval_freq: 1
+  save_every: 10
 
   # Optimizer
   optimizer:
     type: "AdamW"
-    lr: 2e-5  # Base learning rate
+    base_lr: 2.0e-5  # Base model learning rate
+    sci_lr: 6.0e-5   # SCI modules learning rate (3x higher)
+    lr: 2.0e-5  # Default/fallback LR
     weight_decay: 0.01
     betas: [0.9, 0.999]
     eps: 1e-8
@@ -89,13 +98,15 @@ training:
     num_warmup_steps: 1000
 
 # Loss Weights
+# NeuroGen Transfer: Sharper temperature, stronger SCL weight, more EOS emphasis
 loss:
   task_weight: 1.0  # Standard seq2seq loss
-  scl_weight: 0.3  # Structural contrastive learning
+  scl_weight: 0.5  # Increased from 0.3 (NeuroGen: stronger structural learning)
   scl_warmup_steps: 5000  # Gradually increase SCL weight
+  scl_warmup_epochs: 3  # Number of epochs for SCL warmup (NeuroGen: longer warmup)
   ortho_weight: 0.1  # Orthogonality constraint
-  eos_weight: 2.0  # Upweight EOS token
-  scl_temperature: 0.07  # Temperature for contrastive loss
+  eos_weight: 3.0  # Increased from 2.0 (NeuroGen: reliable sequence termination)
+  scl_temperature: 0.05  # Decreased from 0.07 (NeuroGen: sharper discrimination)
 
 # Data
 data:

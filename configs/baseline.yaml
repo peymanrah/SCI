@@ -14,7 +14,7 @@ model:
   # Positional Encoding
   position_encoding:
     type: "rotary"
-    max_length: 1024  # Support prompt + long outputs (SCAN length split needs 288+ tokens)
+    max_length: 2048  # Must match SCI for fair comparison
     base: 10000
 
   # ALL SCI COMPONENTS DISABLED
@@ -41,11 +41,11 @@ data:
 training:
   # Batch configuration (same as SCI)
   batch_size: 32
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 2  # Same as SCI - effective batch = 64
 
-  # Training duration
-  max_epochs: 50
-  gradient_clip: 1.0
+  # Training duration (MUST match SCI for fair comparison)
+  max_epochs: 100  # Same as SCI
+  gradient_clip: 0.5  # Same as SCI
   warmup_steps: 1000
 
   # Mixed precision (use mixed_precision, not fp16)
@@ -83,10 +83,10 @@ loss:
   # NO SCI losses (set to 0 for baseline)
   scl_weight: 0.0
   ortho_weight: 0.0
-  eos_weight: 2.0  # Still use EOS weighting for proper termination
+  eos_weight: 3.0  # Same as SCI for fair comparison
   
   # These must be set even if unused (for config validation)
-  scl_temperature: 0.07
+  scl_temperature: 0.05  # Same as SCI (unused since scl_weight=0)
   scl_warmup_steps: 0
 
 # Evaluation Configuration
