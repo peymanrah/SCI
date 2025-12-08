@@ -104,24 +104,34 @@ class SCANDataset(Dataset):
         # Initialize structure extractor
         self.structure_extractor = SCANStructureExtractor()
 
-        # Initialize pair generator
-        self.pair_generator = SCANPairGenerator(
-            extractor=self.structure_extractor,
-            cache_dir=cache_dir,
-        )
+        # V8 CRITICAL #2 FIX: Only generate pairs for training subset
+        # SCL loss is a training objective - we don't need pairs for test/val sets
+        # Generating N×N pairs for test sets is computationally wasteful
+        if subset == 'train':
+            # Initialize pair generator
+            self.pair_generator = SCANPairGenerator(
+                extractor=self.structure_extractor,
+                cache_dir=cache_dir,
+            )
 
-        # Generate/load pairs
-        cache_name = f"scan_{split_name}_{subset}_pairs"
-        print(f"Generating/loading structural pairs...")
-        self.pair_matrix = self.pair_generator.generate_pairs(
-            commands=self.commands,
-            cache_name=cache_name,
-            force_regenerate=force_regenerate_pairs,
-        )
+            # Generate/load pairs
+            cache_name = f"scan_{split_name}_{subset}_pairs"
+            print(f"Generating/loading structural pairs...")
+            self.pair_matrix = self.pair_generator.generate_pairs(
+                commands=self.commands,
+                cache_name=cache_name,
+                force_regenerate=force_regenerate_pairs,
+            )
 
-        # CRITICAL #17: Verify pair matrix is symmetric
-        assert torch.allclose(self.pair_matrix, self.pair_matrix.t()), \
-            "Pair matrix must be symmetric (pair_matrix[i,j] == pair_matrix[j,i])"
+            # CRITICAL #17: Verify pair matrix is symmetric
+            assert torch.allclose(self.pair_matrix, self.pair_matrix.t()), \
+                "Pair matrix must be symmetric (pair_matrix[i,j] == pair_matrix[j,i])"
+        else:
+            # For non-training subsets, skip pair generation
+            # This saves O(N²) computation and memory for test/validation sets
+            print(f"Skipping pair generation for '{subset}' subset (not needed for SCL loss)")
+            self.pair_generator = None
+            self.pair_matrix = None
 
         print(f"✓ SCAN dataset ready: {len(self)} examples")
 

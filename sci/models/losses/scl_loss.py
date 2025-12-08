@@ -115,45 +115,31 @@ class StructuralContrastiveLoss(nn.Module):
         positive_mask = pair_labels.bool() & ~self_mask
 
         # Check if there are any positive pairs
-        if positive_mask.sum() == 0:
+        num_positives = positive_mask.sum()
+        if num_positives == 0:
             # No positive pairs in batch - return zero loss
             return torch.tensor(0.0, device=repr_i.device, requires_grad=True)
 
-        # Compute loss for each anchor
-        losses = []
-
-        for i in range(batch_size):
-            # Get positive pairs for anchor i
-            pos_indices = positive_mask[i].nonzero(as_tuple=True)[0]
-
-            if len(pos_indices) == 0:
-                continue  # No positive pairs for this anchor
-
-            # Similarities for anchor i
-            sim_i = similarity_matrix[i]
-
-            # For each positive pair
-            for pos_idx in pos_indices:
-                # Numerator: exp(sim(i, positive))
-                numerator = torch.exp(sim_i[pos_idx])
-
-                # Denominator: sum of exp(sim(i, k)) for all k != i
-                # Include both positive and negative pairs
-                denominator_mask = torch.ones(batch_size, dtype=torch.bool, device=repr_i.device)
-                denominator_mask[i] = False  # Exclude self
-
-                denominator = torch.exp(sim_i[denominator_mask]).sum()
-
-                # Loss for this positive pair
-                loss_ij = -torch.log(numerator / (denominator + 1e-8))
-                losses.append(loss_ij)
-
-        if len(losses) == 0:
-            # No valid positive pairs
-            return torch.tensor(0.0, device=repr_i.device, requires_grad=True)
-
-        # Average loss over all positive pairs
-        loss = torch.stack(losses).mean()
+        # V8 PERFORMANCE #3 FIX: Vectorized NT-Xent loss computation
+        # Instead of Python loops, use masked operations for efficiency
+        
+        # Mask self-similarity for denominator (set diagonal to -inf)
+        sim_matrix_masked = similarity_matrix.clone()
+        sim_matrix_masked.masked_fill_(self_mask, float('-inf'))
+        
+        # log-sum-exp for denominator: log(sum_k!=i exp(sim[i,k]))
+        # Shape: [batch]
+        log_sum_exp_all = torch.logsumexp(sim_matrix_masked, dim=1)
+        
+        # For each positive pair (i, j), loss is: -sim[i,j] + log(sum_k!=i exp(sim[i,k]))
+        # Expand log_sum_exp to [batch, batch] for broadcasting
+        log_sum_exp_expanded = log_sum_exp_all.unsqueeze(1).expand_as(similarity_matrix)
+        
+        # NT-Xent loss for each pair: -sim[i,j] + log(sum_k!=i exp(sim[i,k]))
+        loss_matrix = -similarity_matrix + log_sum_exp_expanded
+        
+        # Only average over positive pairs (excluding diagonal)
+        loss = (loss_matrix * positive_mask.float()).sum() / num_positives.float()
 
         return self.lambda_weight * loss
 

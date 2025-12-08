@@ -139,6 +139,9 @@ class SCITrainer:
         
         # #51 FIX: Add validation dataset (like train.py)
         # #98 FIX: Handle missing validation split gracefully
+        # V8 CRITICAL #1 FIX: Create separate validation collator WITHOUT pair_generator
+        # Using training pair_generator for validation causes data mismatch
+        # (validation indices would look up training pair cache)
         print(f"Loading validation dataset...")
         try:
             self.val_dataset = SCANDataset(
@@ -148,11 +151,20 @@ class SCITrainer:
                 max_length=config.data.max_length,
                 cache_dir=getattr(config.data, 'pairs_cache_dir', '.cache/scan'),
             )
+            # V8 CRITICAL #1 FIX: Validation collator has pair_generator=None
+            # This prevents looking up incorrect pair labels from training cache
+            # Validation only uses LM loss anyway (pair_labels=None in _validate_epoch)
+            self.val_collator = SCANDataCollator(
+                tokenizer=self.model.tokenizer,
+                max_length=config.data.max_length,
+                pair_generator=None,  # No pair generation for validation
+                use_chat_template=getattr(config.data, 'use_chat_template', False),
+            )
             self.val_loader = DataLoader(
                 self.val_dataset,
                 batch_size=config.training.batch_size,
                 shuffle=False,
-                collate_fn=self.collator,
+                collate_fn=self.val_collator,  # Use validation-specific collator
                 num_workers=0,
             )
         except Exception as e:
@@ -160,6 +172,7 @@ class SCITrainer:
             print("Training will proceed without validation.")
             self.val_dataset = None
             self.val_loader = None
+            self.val_collator = None
         
         # #51 FIX: Add early stopping and overfitting detection (like train.py)
         es_config = getattr(config.training, 'early_stopping', None)
@@ -470,6 +483,8 @@ class SCITrainer:
             # Log to wandb
             # FIX: Use getattr() since config.logging is a dataclass, not dict
             if self.use_wandb and self.global_step % getattr(self.config.logging, 'log_every', 10) == 0:
+                # V8 MINOR #8 FIX: Log gradient norm to wandb for remote debugging
+                grad_norm_value = grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm
                 wandb.log({
                     'train/total_loss': losses['total_loss'].item(),
                     'train/lm_loss': losses['lm_loss'].item(),
@@ -479,6 +494,7 @@ class SCITrainer:
                     'train/lr': self.scheduler.get_last_lr()[0],
                     'train/step': self.global_step,
                     'train/epoch': epoch,
+                    'train/grad_norm': grad_norm_value,  # V8 #8: Log gradient norm
                 })
 
         return {
