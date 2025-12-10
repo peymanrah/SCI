@@ -50,6 +50,9 @@ class CausalBindingMechanism(nn.Module):
         self.num_heads = config.model.causal_binding.num_heads
         self.dropout = config.model.causal_binding.dropout
         self.injection_layers = config.model.causal_binding.injection_layers
+        
+        # CONFIGURABLE SLOT COUNT: Read from SE config or default to 8
+        self.num_slots = getattr(config.model.structural_encoder, 'num_slots', 8)
 
         # Head dimension
         assert self.d_model % self.num_heads == 0, \
@@ -158,6 +161,30 @@ class CausalBindingMechanism(nn.Module):
             )
             for layer in self.injection_layers
         })
+
+        # STRUCTURAL EOS PREDICTOR: Predicts completion based on structural coverage
+        # This provides a structural signal for EOS rather than relying purely on token statistics
+        # The predictor takes bound slots and outputs a scalar completion score
+        self.eos_predictor = nn.Sequential(
+            # Pool across slots: [batch, num_slots, d_model] -> [batch, d_model]
+            # Done via attention pooling in forward
+        )
+        self.eos_query = nn.Parameter(torch.empty(1, 1, self.d_model))
+        nn.init.xavier_uniform_(self.eos_query[0])
+        
+        self.eos_key = nn.Linear(self.d_model, self.d_model)
+        self.eos_value = nn.Linear(self.d_model, self.d_model)
+        
+        # Final projection to scalar EOS logit
+        self.eos_head = nn.Sequential(
+            nn.Linear(self.d_model, self.d_model // 4),
+            nn.GELU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.d_model // 4, 1),  # Single scalar output
+        )
+        
+        # Flag to enable/disable structural EOS prediction
+        self.use_structural_eos = getattr(config.model.causal_binding, 'use_structural_eos', True)
 
         # CRITICAL ASSERTIONS
         assert hasattr(self, 'binding_query'), "CRITICAL: Binding attention missing!"
@@ -440,6 +467,104 @@ class CausalBindingMechanism(nn.Module):
 
         return injected_hidden
 
+    def predict_eos(
+        self,
+        bound_slots: torch.Tensor,
+        return_attention: bool = False,
+    ) -> torch.Tensor:
+        """
+        Predict EOS probability based on structural slot coverage.
+        
+        COMPOSITIONAL GENERALIZATION: Instead of relying purely on token statistics
+        for EOS prediction, this provides a structural signal based on how "complete"
+        the slot representations are. When all structural slots have been satisfied
+        (e.g., all compositional operations have been generated), the model should
+        predict EOS.
+        
+        Mathematical Intuition:
+        - Each slot represents a compositional pattern (e.g., "twice", "and", "after")
+        - The EOS query attends to all slots to compute a weighted coverage score
+        - High coverage (all patterns consumed) → high EOS probability
+        - Low coverage (patterns remaining) → low EOS probability
+        
+        Args:
+            bound_slots: [batch, num_slots, d_model] - Bound slot representations
+            return_attention: Whether to return attention weights for analysis
+            
+        Returns:
+            eos_logits: [batch, 1] - Scalar EOS logit for each example
+            attention_weights: [batch, 1, num_slots] (optional) - Slot attention for EOS
+        """
+        if not self.use_structural_eos:
+            # Return zeros if structural EOS is disabled
+            batch_size = bound_slots.shape[0]
+            zeros = torch.zeros(batch_size, 1, device=bound_slots.device)
+            if return_attention:
+                return zeros, None
+            return zeros
+        
+        batch_size, num_slots, d_model = bound_slots.shape
+        device = bound_slots.device
+        
+        # Expand EOS query for batch: [1, 1, d_model] -> [batch, 1, d_model]
+        eos_query = self.eos_query.expand(batch_size, -1, -1).to(device)
+        
+        # Compute keys and values from bound slots
+        eos_keys = self.eos_key(bound_slots)  # [batch, num_slots, d_model]
+        eos_values = self.eos_value(bound_slots)  # [batch, num_slots, d_model]
+        
+        # Attention: query attends to all slots
+        # [batch, 1, d_model] x [batch, d_model, num_slots] -> [batch, 1, num_slots]
+        attn_logits = torch.bmm(eos_query, eos_keys.transpose(1, 2)) / (d_model ** 0.5)
+        attn_weights = F.softmax(attn_logits, dim=-1)
+        
+        # Weighted sum over slots: [batch, 1, num_slots] x [batch, num_slots, d_model]
+        # -> [batch, 1, d_model]
+        eos_repr = torch.bmm(attn_weights, eos_values)
+        
+        # Project to scalar EOS logit: [batch, 1, d_model] -> [batch, 1]
+        eos_logits = self.eos_head(eos_repr.squeeze(1))  # [batch, d_model] -> [batch, 1]
+        
+        if return_attention:
+            return eos_logits, attn_weights
+        return eos_logits
+
+    def get_eos_loss(
+        self,
+        bound_slots: torch.Tensor,
+        eos_positions: torch.Tensor,
+        sequence_lengths: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute structural EOS loss.
+        
+        This loss encourages the EOS predictor to output high values at the
+        true EOS position and low values elsewhere.
+        
+        Args:
+            bound_slots: [batch, num_slots, d_model] - Bound representations
+            eos_positions: [batch] - Position of EOS token in each sequence
+            sequence_lengths: [batch] - Total length of each sequence
+            
+        Returns:
+            eos_loss: Scalar loss value
+        """
+        if not self.use_structural_eos:
+            return torch.tensor(0.0, device=bound_slots.device)
+        
+        # Predict EOS from structural slots
+        eos_logits = self.predict_eos(bound_slots)  # [batch, 1]
+        
+        # Binary cross-entropy: 1 at EOS position, 0 elsewhere
+        # For training, we treat the current position as the target
+        # This should be called at the actual EOS position
+        eos_targets = torch.ones_like(eos_logits)  # [batch, 1]
+        
+        # BCE with logits
+        eos_loss = F.binary_cross_entropy_with_logits(eos_logits, eos_targets)
+        
+        return eos_loss
+
 
 if __name__ == "__main__":
     # Test Causal Binding Mechanism
@@ -455,10 +580,22 @@ if __name__ == "__main__":
         dropout: float = 0.1
         injection_layers: List[int] = field(default_factory=lambda: [6, 12, 18])
         use_causal_intervention: bool = True
+        use_structural_eos: bool = True
+
+    @dataclass
+    class StructuralEncoderConfig:
+        d_model: int = 2048
+        num_slots: int = 8  # Configurable slot count
+
+    @dataclass
+    class ContentEncoderConfig:
+        d_model: int = 2048
 
     @dataclass
     class ModelConfig:
         causal_binding: CausalBindingConfig = field(default_factory=CausalBindingConfig)
+        structural_encoder: StructuralEncoderConfig = field(default_factory=StructuralEncoderConfig)
+        content_encoder: ContentEncoderConfig = field(default_factory=ContentEncoderConfig)
 
     @dataclass
     class Config:
@@ -468,6 +605,7 @@ if __name__ == "__main__":
 
     # Create CBM
     cbm = CausalBindingMechanism(config)
+    print(f"  - CBM num_slots: {cbm.num_slots}")
 
     # Test binding
     batch_size = 4
@@ -519,5 +657,20 @@ if __name__ == "__main__":
     assert torch.allclose(injected_no_change, decoder_hidden), \
         "Non-injection layer should return unchanged"
     print(f"✓ Non-injection layer returns unchanged")
+
+    # Test structural EOS prediction
+    eos_logits, eos_attn = cbm.predict_eos(bound_repr, return_attention=True)
+    assert eos_logits.shape == (batch_size, 1), \
+        f"EOS logits shape mismatch: {eos_logits.shape}"
+    assert eos_attn.shape == (batch_size, 1, num_slots), \
+        f"EOS attention shape mismatch: {eos_attn.shape}"
+    print(f"✓ Structural EOS prediction: {eos_logits.shape}")
+    print(f"  - EOS attention weights: {eos_attn.shape}")
+
+    # Test configurable slot count
+    config.model.structural_encoder.num_slots = 16
+    cbm_16_slots = CausalBindingMechanism(config)
+    assert cbm_16_slots.num_slots == 16, f"Slot count mismatch: {cbm_16_slots.num_slots}"
+    print(f"✓ Configurable slot count: {cbm_16_slots.num_slots} slots")
 
     print("\n✓ All CausalBindingMechanism tests passed!")

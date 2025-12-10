@@ -66,6 +66,7 @@ model:
     dropout: 0.15    # Medium dropout for binding generalization
     injection_layers: [6, 11, 16]  # Inject at early, middle, late TinyLlama layers
     use_causal_intervention: true
+    use_structural_eos: true  # Use structural slot coverage to predict EOS
 
 # Data Configuration
 data:
