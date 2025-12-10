@@ -250,7 +250,7 @@ class SCICombinedLoss(nn.Module):
             )
 
         # =====================================================
-        # 4. EOS Enforcement Loss
+        # 4. EOS Enforcement Loss (Token-level)
         # =====================================================
 
         eos_loss = torch.tensor(0.0, device=device)
@@ -265,14 +265,26 @@ class SCICombinedLoss(nn.Module):
             )
 
         # =====================================================
-        # 5. Combine Losses
+        # 5. Structural EOS Loss (from CBM slot coverage)
+        # =====================================================
+        
+        structural_eos_loss = model_outputs.get('structural_eos_loss')
+        if structural_eos_loss is None:
+            structural_eos_loss = torch.tensor(0.0, device=device)
+
+        # =====================================================
+        # 6. Combine Losses
         # =====================================================
 
         # Use override weight if provided (for warmup schedule)
         scl_weight = scl_weight_override if scl_weight_override is not None else self.scl_weight
 
-        # Total loss
-        total_loss = lm_loss + scl_weight * scl_loss + self.ortho_weight * ortho_loss + self.eos_weight * eos_loss
+        # Total loss (structural_eos_loss uses same weight as token-level EOS loss)
+        total_loss = (lm_loss + 
+                      scl_weight * scl_loss + 
+                      self.ortho_weight * ortho_loss + 
+                      self.eos_weight * eos_loss +
+                      self.eos_weight * structural_eos_loss)
 
         # Return all components for logging
         return {
@@ -281,6 +293,7 @@ class SCICombinedLoss(nn.Module):
             'scl_loss': scl_loss,
             'orthogonality_loss': ortho_loss,
             'eos_loss': eos_loss,
+            'structural_eos_loss': structural_eos_loss,
             'num_positive_pairs': num_positive_pairs,
             'scl_weight_used': scl_weight,
         }

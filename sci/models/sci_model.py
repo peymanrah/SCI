@@ -263,6 +263,9 @@ class SCIModel(nn.Module):
                             content_repr=content_repr,
                             edge_weights=edge_weights,
                         )
+                        
+                        # Store bound_repr for structural EOS loss computation
+                        self.current_bound_repr = bound_repr
 
                         # Step 2: Broadcast to sequence length
                         broadcast_repr = self.causal_binding.broadcast(
@@ -397,6 +400,7 @@ class SCIModel(nn.Module):
 
         # Store for hooks
         self.current_instruction_mask = instruction_mask
+        self.current_bound_repr = None  # Will be set by CBM hook
 
         # ============================================================
         # STEP 2: Structural Encoder (SE)
@@ -460,6 +464,22 @@ class SCIModel(nn.Module):
             'content_repr': content_repr,
             'structural_scores': structural_scores,
         }
+        
+        # ============================================================
+        # STEP 5b: Compute Structural EOS Loss (if CBM enabled)
+        # ============================================================
+        if (self.causal_binding is not None and 
+            self.current_bound_repr is not None and 
+            labels is not None):
+            # Compute structural EOS loss from slot coverage
+            structural_eos_loss = self.causal_binding.get_eos_loss(
+                bound_slots=self.current_bound_repr,
+                labels=labels,
+                eos_token_id=self.tokenizer.eos_token_id,
+            )
+            result['structural_eos_loss'] = structural_eos_loss
+        else:
+            result['structural_eos_loss'] = None
 
         if output_hidden_states:
             result['hidden_states'] = outputs.hidden_states
@@ -469,6 +489,7 @@ class SCIModel(nn.Module):
         self.current_content_repr = None
         self.current_structural_scores = None
         self.current_instruction_mask = None
+        self.current_bound_repr = None
 
         return result if return_dict else (result['logits'], result['loss'])
 
