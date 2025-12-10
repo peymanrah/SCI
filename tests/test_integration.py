@@ -150,11 +150,14 @@ class TestComponentIntegration:
 
         batch_size = 2
         num_slots = 8
-        d_model = 2048
+        # Use encoder d_model (512) for inputs, CBM projects to decoder d_model (2048)
+        encoder_d_model = minimal_sci_config.model.structural_encoder.d_model  # 512
+        decoder_d_model = minimal_sci_config.model.causal_binding.d_model  # 2048
 
-        # Create dummy representations
-        structural_slots = torch.randn(batch_size, num_slots, d_model)
-        content_repr = torch.randn(batch_size, d_model)
+        # Create dummy representations at ENCODER dimension
+        # CBM will project these to decoder dimension internally
+        structural_slots = torch.randn(batch_size, num_slots, encoder_d_model)
+        content_repr = torch.randn(batch_size, encoder_d_model)
 
         with torch.no_grad():
             # Bind
@@ -170,8 +173,8 @@ class TestComponentIntegration:
                 seq_len=seq_len,
             )
 
-        # Check final shape ready for injection
-        assert broadcast_repr.shape == (batch_size, seq_len, d_model)
+        # Check final shape ready for injection (at decoder dimension)
+        assert broadcast_repr.shape == (batch_size, seq_len, decoder_d_model)
 
         print("✓ CBM binds and broadcasts representations")
 

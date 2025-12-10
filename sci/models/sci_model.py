@@ -642,12 +642,12 @@ class SCIModel(nn.Module):
         # Initialize model
         model = cls(config)
 
-        # Load state dict
+        # Load state dict with backward compatibility for new parameters
         state_dict = torch.load(
             os.path.join(load_directory, 'pytorch_model.bin'),
             map_location='cpu'
         )
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=False)
 
         print(f"Model loaded from {load_directory}")
 

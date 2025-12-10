@@ -164,11 +164,7 @@ class CausalBindingMechanism(nn.Module):
 
         # STRUCTURAL EOS PREDICTOR: Predicts completion based on structural coverage
         # This provides a structural signal for EOS rather than relying purely on token statistics
-        # The predictor takes bound slots and outputs a scalar completion score
-        self.eos_predictor = nn.Sequential(
-            # Pool across slots: [batch, num_slots, d_model] -> [batch, d_model]
-            # Done via attention pooling in forward
-        )
+        # Uses attention pooling: EOS query attends to bound slots to compute completion score
         self.eos_query = nn.Parameter(torch.empty(1, 1, self.d_model))
         nn.init.xavier_uniform_(self.eos_query[0])
         

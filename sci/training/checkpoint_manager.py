@@ -184,8 +184,27 @@ class TrainingResumer:
             print("[OK] No checkpoint found")
             return
 
-        # Load model state
-        model.load_state_dict(self.checkpoint['model_state_dict'])
+        # Load model state with backward compatibility for new parameters
+        # Use strict=False to handle checkpoints without new EOS predictor parameters
+        missing_keys, unexpected_keys = model.load_state_dict(
+            self.checkpoint['model_state_dict'], 
+            strict=False
+        )
+        
+        # Log any missing/unexpected keys for debugging
+        if missing_keys:
+            # Filter out expected new parameters for cleaner output
+            new_params = ['eos_query', 'eos_key', 'eos_value', 'eos_head', 
+                         'base_position_query', 'broadcast_pos_encoding']
+            truly_missing = [k for k in missing_keys 
+                            if not any(p in k for p in new_params)]
+            if truly_missing:
+                print(f"[WARNING] Missing keys in checkpoint: {truly_missing}")
+            else:
+                print(f"[OK] New parameters initialized from scratch: {len(missing_keys)} keys")
+        
+        if unexpected_keys:
+            print(f"[WARNING] Unexpected keys in checkpoint: {unexpected_keys}")
 
         # Load optimizer state if provided
         if optimizer is not None:
@@ -226,8 +245,8 @@ class TrainingResumer:
                 'metrics_history': []
             }
 
-        # Load model state
-        model.load_state_dict(checkpoint['model_state_dict'])
+        # Load model state with backward compatibility
+        model.load_state_dict(checkpoint['model_state_dict'], strict=False)
 
         # Load optimizer state
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

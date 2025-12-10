@@ -84,6 +84,7 @@ class CausalBindingConfig:
     use_causal_intervention: bool = True
     injection_method: str = "gated"  # gated or additive
     gate_init: float = 0.1
+    use_structural_eos: bool = True  # Use structural slot coverage to predict EOS
 
 
 @dataclass

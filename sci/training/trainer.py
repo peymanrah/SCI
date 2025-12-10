@@ -694,16 +694,17 @@ class SCITrainer:
         print(f"Loading model from: {model_path}")
         # #55 FIX: Load state dict directly instead of from_pretrained
         # SCIModel doesn't have from_pretrained like HuggingFace models
+        # Use strict=False for backward compatibility with checkpoints missing new parameters
         state_dict_path = os.path.join(model_path, 'pytorch_model.bin')
         if os.path.exists(state_dict_path):
             state_dict = torch.load(state_dict_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+            self.model.load_state_dict(state_dict, strict=False)
         else:
             # Try loading as config + model.pt format
             model_file = os.path.join(model_path, 'model.pt')
             if os.path.exists(model_file):
                 state_dict = torch.load(model_file, map_location=self.device)
-                self.model.load_state_dict(state_dict)
+                self.model.load_state_dict(state_dict, strict=False)
             else:
                 raise FileNotFoundError(f"No model weights found in {model_path}")
         
