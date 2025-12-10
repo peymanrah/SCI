@@ -137,8 +137,8 @@ class CausalBindingMechanism(nn.Module):
         nn.init.xavier_uniform_(position_queries[0])
         self.position_queries = nn.Parameter(position_queries)
         
-        # Flag to use new RoPE-based broadcast (default True for new training)
-        self.use_rope_broadcast = True
+        # Flag to use new RoPE-based broadcast (from config, default True for new training)
+        self.use_rope_broadcast = getattr(config.model.causal_binding, 'use_rope_broadcast', True)
 
         # Injection adapters for each decoder layer
         # These prepare the bound representation for injection
