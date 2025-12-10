@@ -110,15 +110,32 @@ class CausalBindingMechanism(nn.Module):
 
         self.broadcast_norm = nn.LayerNorm(self.d_model)
 
-        # Learned position queries for broadcast (dynamically extended if needed)
-        # Base max_seq_len, but can be extended at runtime
-        self.base_max_seq_len = 1024  # Support longer sequences for SCAN length split
+        # COMPOSITIONAL GENERALIZATION FIX: Use RoPE for position queries
+        # instead of learned embeddings that require interpolation for OOD lengths
+        # This allows natural extrapolation to longer sequences
+        from sci.models.components.positional_encoding import RotaryPositionalEncoding
         
-        # V8 FIX #6: Use Xavier initialization for better convergence
-        # randn * 0.02 is arbitrary; Xavier scales properly with d_model
+        # RoPE for broadcast queries - enables length generalization
+        self.broadcast_pos_encoding = RotaryPositionalEncoding(
+            d_model=self.d_model,
+            max_length=4096,  # Large enough for any SCAN sequence
+            base=10000,
+        )
+        
+        # Learnable base query (single vector, replicated for each position)
+        # Position information comes from RoPE, not learned embeddings
+        self.base_position_query = nn.Parameter(torch.empty(1, 1, self.d_model))
+        nn.init.xavier_uniform_(self.base_position_query[0])
+        
+        # Legacy: Keep position_queries for backward compatibility with checkpoints
+        # But mark as deprecated
+        self.base_max_seq_len = 2048  # Increased from 1024 to match config
         position_queries = torch.empty(1, self.base_max_seq_len, self.d_model)
-        nn.init.xavier_uniform_(position_queries[0])  # Xavier on [seq, d_model]
+        nn.init.xavier_uniform_(position_queries[0])
         self.position_queries = nn.Parameter(position_queries)
+        
+        # Flag to use new RoPE-based broadcast (default True for new training)
+        self.use_rope_broadcast = True
 
         # Injection adapters for each decoder layer
         # These prepare the bound representation for injection
@@ -294,8 +311,9 @@ class CausalBindingMechanism(nn.Module):
         """
         Broadcast bound slots back to sequence positions.
 
-        This uses attention to map each position in the sequence to
-        relevant bound slots.
+        COMPOSITIONAL GENERALIZATION FIX: Uses RoPE for position queries
+        instead of learned embeddings. This enables natural extrapolation
+        to sequences longer than seen during training.
 
         Args:
             bound_slots: [batch, num_slots, d_model]
@@ -305,37 +323,33 @@ class CausalBindingMechanism(nn.Module):
             broadcast_repr: [batch, seq_len, d_model]
         """
         batch_size, num_slots, d_model = bound_slots.shape
-
-        # Create learnable position queries
-        # We want seq_len queries that will attend to num_slots slots
-        # For simplicity, use a learned embedding for each position
         device = bound_slots.device
 
-        # Create position indices
-        positions = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
-
-        # Get position queries (handle sequences longer than base_max_seq_len)
-        if seq_len <= self.position_queries.shape[1]:
-            # Use pre-learned position queries
-            pos_queries = self.position_queries[:, :seq_len, :].to(device).expand(batch_size, -1, -1)
+        if self.use_rope_broadcast:
+            # NEW: RoPE-based position queries for length generalization
+            # 1. Replicate base query for each position
+            pos_queries = self.base_position_query.expand(batch_size, seq_len, -1).clone()
+            
+            # 2. Apply RoPE to add position information
+            # This naturally extrapolates to any sequence length
+            pos_queries = self.broadcast_pos_encoding(pos_queries, seq_len=seq_len)
         else:
-            # #101 FIX: Cache interpolated position queries for performance
-            # Check if we have a cached version for this seq_len
-            cache_key = f"_cached_pos_queries_{seq_len}"
-            if hasattr(self, cache_key):
-                pos_queries = getattr(self, cache_key).to(device).expand(batch_size, -1, -1)
+            # LEGACY: Learned position queries (kept for checkpoint compatibility)
+            if seq_len <= self.position_queries.shape[1]:
+                pos_queries = self.position_queries[:, :seq_len, :].to(device).expand(batch_size, -1, -1)
             else:
-                # For longer sequences, interpolate position queries
-                # This allows handling sequences beyond base_max_seq_len
-                import torch.nn.functional as F
-                # Interpolate to seq_len using linear interpolation
-                pos_queries_base = self.position_queries.to(device)  # [1, base_max, d_model]
-                pos_queries_base = pos_queries_base.transpose(1, 2)  # [1, d_model, base_max]
-                pos_queries = F.interpolate(pos_queries_base, size=seq_len, mode='linear', align_corners=True)
-                pos_queries = pos_queries.transpose(1, 2)  # [1, seq_len, d_model]
-                # Cache for future use (register as buffer so it moves with model)
-                self.register_buffer(cache_key, pos_queries.clone(), persistent=False)
-                pos_queries = pos_queries.expand(batch_size, -1, -1)
+                # Interpolation fallback
+                cache_key = f"_cached_pos_queries_{seq_len}"
+                if hasattr(self, cache_key):
+                    pos_queries = getattr(self, cache_key).to(device).expand(batch_size, -1, -1)
+                else:
+                    import torch.nn.functional as F
+                    pos_queries_base = self.position_queries.to(device)
+                    pos_queries_base = pos_queries_base.transpose(1, 2)
+                    pos_queries = F.interpolate(pos_queries_base, size=seq_len, mode='linear', align_corners=True)
+                    pos_queries = pos_queries.transpose(1, 2)
+                    self.register_buffer(cache_key, pos_queries.clone(), persistent=False)
+                    pos_queries = pos_queries.expand(batch_size, -1, -1)
 
         # Broadcast attention: position queries attend to bound slots
         broadcast_repr, _ = self._multihead_attention(

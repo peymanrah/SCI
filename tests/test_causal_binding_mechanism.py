@@ -30,6 +30,9 @@ def cbm_config():
                 injection_method="gated",
                 gate_init=0.1,
             ),
+            # Required for CBM encoder projections
+            structural_encoder=SimpleNamespace(d_model=2048),
+            content_encoder=SimpleNamespace(d_model=2048),
         ),
     )
     return config
