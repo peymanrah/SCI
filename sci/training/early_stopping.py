@@ -43,6 +43,22 @@ class EarlyStopping:
         Returns:
             bool: True if should stop training
         """
+        # V9-5 FIX: Validate metric range for common metrics
+        if self.mode == 'max' and score < 0:
+            # Warn if maximizing a negative metric (likely an error)
+            import warnings
+            warnings.warn(f"EarlyStopping: mode='max' but score={score} is negative. "
+                         f"Check if this is the intended metric.")
+        
+        # V9-5 FIX: Handle NaN/Inf gracefully
+        import math
+        if math.isnan(score) or math.isinf(score):
+            import warnings
+            warnings.warn(f"EarlyStopping: score={score} is NaN or Inf. Treating as no improvement.")
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.should_stop = True
+            return self.should_stop
 
         if self.best_score is None:
             self.best_score = score

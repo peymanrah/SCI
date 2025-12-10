@@ -115,6 +115,11 @@ class SCITrainer:
         # SCL warmup
         # FIX: Use getattr() since config.loss is a dataclass, not dict
         self.scl_warmup_epochs = getattr(config.loss, 'scl_warmup_epochs', 2)
+        
+        # V9-1 FIX: Gradient accumulation steps (match train.py behavior)
+        self.grad_accum_steps = getattr(config.training, 'gradient_accumulation_steps', 1)
+        print(f"  Gradient accumulation steps: {self.grad_accum_steps}")
+        print(f"  Effective batch size: {config.training.batch_size * self.grad_accum_steps}")
 
         # Logging
         # FIX: Use getattr() since config.logging is a dataclass, not dict
@@ -418,6 +423,9 @@ class SCITrainer:
 
         # Get current SCL weight
         scl_weight = self.compute_scl_weight(epoch)
+        
+        # V9-1 FIX: Zero gradients at start of epoch for gradient accumulation
+        self.optimizer.zero_grad()
 
         progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}")
 
@@ -458,30 +466,42 @@ class SCITrainer:
                 )
 
                 loss = losses['total_loss']
+                
+                # V9-1 FIX: Scale loss by gradient accumulation steps
+                scaled_loss = loss / self.grad_accum_steps
 
-            # Backward pass
+            # Backward pass (accumulate gradients)
             # #108 FIX: Track gradient norm for debugging
             # Read gradient_clip from config (primary) or optimizer.max_grad_norm (fallback)
             max_grad_norm = getattr(self.config.training, 'gradient_clip',
                                    getattr(self.config.training.optimizer, 'max_grad_norm', 1.0))
-            if self.scaler:
-                self.scaler.scale(loss).backward()
-                self.scaler.unscale_(self.optimizer)
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-                self.optimizer.step()
             
-            # Track gradient norm history (for debugging)
-            if not hasattr(self, 'grad_norm_history'):
-                self.grad_norm_history = []
-            self.grad_norm_history.append(grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm)
-
-            self.scheduler.step()
-            self.optimizer.zero_grad()
+            if self.scaler:
+                self.scaler.scale(scaled_loss).backward()
+            else:
+                scaled_loss.backward()
+            
+            # V9-1 FIX: Only step optimizer every grad_accum_steps batches
+            should_step = ((batch_idx + 1) % self.grad_accum_steps == 0 or 
+                          (batch_idx + 1) == len(self.train_loader))
+            
+            if should_step:
+                if self.scaler:
+                    self.scaler.unscale_(self.optimizer)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
+                    self.optimizer.step()
+                
+                self.scheduler.step()
+                self.optimizer.zero_grad()
+                
+                # Track gradient norm history (for debugging)
+                if not hasattr(self, 'grad_norm_history'):
+                    self.grad_norm_history = []
+                self.grad_norm_history.append(grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm)
 
             self.global_step += 1
 

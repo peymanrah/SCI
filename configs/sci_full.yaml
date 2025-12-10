@@ -1,8 +1,7 @@
 # SCI Full Configuration
 # Complete SCI architecture with all components enabled
 # Target: >85% OOD accuracy on SCAN length split
-
-# Inherits from base_config.yaml and overrides specific values
+# Note: This is a complete configuration file (no inheritance)
 
 seed: 42
 
