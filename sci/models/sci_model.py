@@ -408,7 +408,7 @@ class SCIModel(nn.Module):
 
         if self.structural_encoder is not None:
             # SE processes ONLY instruction tokens
-            structural_slots, structural_scores = self.structural_encoder(
+            structural_slots, structural_scores, edge_weights = self.structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,  # CRITICAL
@@ -417,11 +417,14 @@ class SCIModel(nn.Module):
             # Store for CBM injection
             self.current_structural_slots = structural_slots
             self.current_structural_scores = structural_scores
+            # CRITICAL: Store edge weights for causal intervention
+            self.current_edge_weights = edge_weights
         else:
             structural_slots = None
             structural_scores = None
             self.current_structural_slots = None
             self.current_structural_scores = None
+            self.current_edge_weights = None
 
         # ============================================================
         # STEP 3: Content Encoder (CE)
@@ -471,11 +474,27 @@ class SCIModel(nn.Module):
         if (self.causal_binding is not None and 
             self.current_bound_repr is not None and 
             labels is not None):
+            
+            # Calculate EOS positions and sequence lengths for structural EOS loss
+            # eos_positions: Index of first EOS token in each sequence
+            eos_mask = (labels == self.tokenizer.eos_token_id)
+            # If multiple EOS, take the first one. If none, use length-1
+            eos_positions = torch.argmax(eos_mask.float(), dim=1)
+            
+            # Handle case where no EOS is found (argmax returns 0 if all false)
+            # Check if actually found
+            has_eos = eos_mask.any(dim=1)
+            # If not found, set to seq_len - 1 (last token)
+            eos_positions = torch.where(has_eos, eos_positions, torch.tensor(seq_len - 1, device=self.device))
+            
+            # Sequence lengths from attention mask
+            sequence_lengths = attention_mask.sum(dim=1)
+
             # Compute structural EOS loss from slot coverage
             structural_eos_loss = self.causal_binding.get_eos_loss(
                 bound_slots=self.current_bound_repr,
-                labels=labels,
-                eos_token_id=self.tokenizer.eos_token_id,
+                eos_positions=eos_positions,
+                sequence_lengths=sequence_lengths,
             )
             result['structural_eos_loss'] = structural_eos_loss
         else:
@@ -523,12 +542,13 @@ class SCIModel(nn.Module):
 
         # Encode structure and content
         if self.structural_encoder is not None:
-            structural_slots, _ = self.structural_encoder(
+            structural_slots, _, edge_weights = self.structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
             )
             self.current_structural_slots = structural_slots
+            self.current_edge_weights = edge_weights
 
         if self.content_encoder is not None:
             content_repr = self.content_encoder(
@@ -552,6 +572,7 @@ class SCIModel(nn.Module):
             # Clear stored representations (always, even on exception)
             self.current_structural_slots = None
             self.current_content_repr = None
+            self.current_edge_weights = None
 
     def compute_orthogonality_loss(
         self,
@@ -589,7 +610,7 @@ class SCIModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, List[torch.Tensor], Optional[torch.Tensor]]:
         """
         Get structural representation for analysis/testing.
 
@@ -605,6 +626,7 @@ class SCIModel(nn.Module):
         Returns:
             structural_slots: [batch_size, num_slots, d_model]
             structural_scores: List of [batch_size, seq_len, d_model] scores
+            edge_weights: [batch_size, num_slots, num_slots] causal edge weights
         """
         if self.structural_encoder is None:
             raise ValueError("Structural Encoder is not enabled")
@@ -612,13 +634,13 @@ class SCIModel(nn.Module):
         # Treat input as instruction
         instruction_mask = attention_mask
 
-        structural_slots, structural_scores = self.structural_encoder(
+        structural_slots, structural_scores, edge_weights = self.structural_encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
             instruction_mask=instruction_mask,
         )
 
-        return structural_slots, structural_scores
+        return structural_slots, structural_scores, edge_weights
 
     def save_pretrained(self, save_directory: str):
         """Save model to directory."""

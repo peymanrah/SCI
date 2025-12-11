@@ -32,6 +32,111 @@ from sci.models.components.positional_encoding import RotaryPositionalEncoding
 from sci.models.components.slot_attention import SlotAttention
 
 
+class EdgePredictor(nn.Module):
+    """
+    Edge Predictor: Predicts relationships between structural slots.
+
+    This module enables the "Causal" in Causal Binding Mechanism by predicting
+    edge weights between slots. These weights determine how structural slots
+    influence each other during causal intervention.
+
+    For example, in "walk twice":
+    - Slot 0 might represent "walk" (action)
+    - Slot 1 might represent "twice" (modifier)
+    - Edge weight [0,1] indicates "twice" modifies "walk"
+
+    The edge predictor enables do-calculus interventions:
+    do(slot_i = value) affects slot_j proportionally to edge_weights[j,i]
+
+    Reference: Based on relational reasoning in:
+        Santoro et al., "A simple neural network module for relational reasoning"
+        NeurIPS 2017
+
+    Args:
+        d_model: Dimension of slot representations
+        num_heads: Number of attention heads for edge prediction
+        dropout: Dropout probability
+        temperature: Temperature for edge weight softmax (lower = sharper)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int = 4,
+        dropout: float = 0.1,
+        temperature: float = 1.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.temperature = temperature
+
+        # Project slots to query and key for edge prediction
+        self.edge_query = nn.Linear(d_model, d_model)
+        self.edge_key = nn.Linear(d_model, d_model)
+
+        # Optional: learnable edge bias for structural priors
+        # (e.g., modifiers typically follow actions in SCAN)
+        self.edge_bias = nn.Parameter(torch.zeros(1, 1, 1))
+
+        # Normalization and dropout
+        self.dropout = nn.Dropout(dropout)
+
+        # Initialize with small weights for stable training
+        self._init_weights()
+
+    def _init_weights(self):
+        """Initialize weights for stable training."""
+        # Xavier initialization for projections
+        nn.init.xavier_uniform_(self.edge_query.weight)
+        nn.init.xavier_uniform_(self.edge_key.weight)
+        nn.init.zeros_(self.edge_query.bias)
+        nn.init.zeros_(self.edge_key.bias)
+
+    def forward(
+        self,
+        slots: torch.Tensor,
+        return_logits: bool = False,
+    ) -> torch.Tensor:
+        """
+        Predict edge weights between slots.
+
+        Args:
+            slots: [batch, num_slots, d_model] - Structural slot representations
+            return_logits: If True, return raw logits instead of softmax weights
+
+        Returns:
+            edge_weights: [batch, num_slots, num_slots] - Edge weights where
+                edge_weights[b, i, j] is the weight of edge from slot j to slot i
+                (i.e., how much slot j influences slot i)
+        """
+        batch_size, num_slots, d_model = slots.shape
+
+        # Compute query and key projections
+        query = self.edge_query(slots)  # [batch, num_slots, d_model]
+        key = self.edge_key(slots)  # [batch, num_slots, d_model]
+
+        # Compute attention scores (edge logits)
+        # [batch, num_slots, d_model] @ [batch, d_model, num_slots] -> [batch, num_slots, num_slots]
+        scale = (d_model ** 0.5)
+        edge_logits = torch.bmm(query, key.transpose(-2, -1)) / scale
+
+        # Add learnable bias
+        edge_logits = edge_logits + self.edge_bias
+
+        if return_logits:
+            return edge_logits
+
+        # Apply temperature-scaled softmax over source slots (dim=-1)
+        # This ensures each target slot receives a weighted combination of sources
+        edge_weights = torch.softmax(edge_logits / self.temperature, dim=-1)
+
+        # Apply dropout for regularization
+        edge_weights = self.dropout(edge_weights)
+
+        return edge_weights
+
+
 class StructuralEncoder(nn.Module):
     """
     Structural Encoder: Encodes structural patterns invariant to content.
@@ -125,6 +230,23 @@ class StructuralEncoder(nn.Module):
             epsilon=config.model.structural_encoder.slot_attention.epsilon,
         )
 
+        # Edge Predictor for causal relationships between slots
+        # CRITICAL: This enables the "Causal" in Causal Binding Mechanism
+        # Without edge prediction, causal intervention code is dormant
+        self.use_edge_prediction = getattr(
+            config.model.structural_encoder, 'use_edge_prediction', True
+        )
+        edge_config = getattr(config.model.structural_encoder, 'edge_predictor', None)
+        if self.use_edge_prediction:
+            self.edge_predictor = EdgePredictor(
+                d_model=self.d_model,
+                num_heads=getattr(edge_config, 'num_heads', 4) if edge_config else 4,
+                dropout=getattr(edge_config, 'dropout', self.dropout) if edge_config else self.dropout,
+                temperature=getattr(edge_config, 'temperature', 1.0) if edge_config else 1.0,
+            )
+        else:
+            self.edge_predictor = None
+
         # Final layer norm
         self.final_norm = nn.LayerNorm(self.d_model)
 
@@ -139,7 +261,7 @@ class StructuralEncoder(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         instruction_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, List[torch.Tensor], Optional[torch.Tensor]]:
         """
         Forward pass of Structural Encoder.
 
@@ -154,6 +276,8 @@ class StructuralEncoder(nn.Module):
         Returns:
             structural_slots: [batch_size, num_slots, d_model]
             structural_scores_all: List of score tensors from each AbstractionLayer
+            edge_weights: [batch_size, num_slots, num_slots] - Causal edge weights
+                between slots (None if edge prediction disabled)
         """
         # HIGH #38: Add tensor size checks
         assert input_ids.dim() == 2, \
@@ -250,7 +374,14 @@ class StructuralEncoder(nn.Module):
         # Pool to structural slots using Slot Attention
         structural_slots = self.slot_attention(hidden_states, attention_mask)
 
-        return structural_slots, structural_scores_all
+        # Predict edge weights for causal intervention
+        # CRITICAL: This enables the "Causal" in Causal Binding Mechanism
+        if self.use_edge_prediction and self.edge_predictor is not None:
+            edge_weights = self.edge_predictor(structural_slots)
+        else:
+            edge_weights = None
+
+        return structural_slots, structural_scores_all, edge_weights
 
     def get_structural_statistics(
         self,
@@ -313,6 +444,17 @@ if __name__ == "__main__":
         injection_layers: List[int] = field(default_factory=lambda: [3, 6, 9])
 
     @dataclass
+    class SlotAttentionConfig:
+        num_iterations: int = 3
+        epsilon: float = 1e-8
+
+    @dataclass
+    class EdgePredictorConfig:
+        num_heads: int = 4
+        dropout: float = 0.1
+        temperature: float = 1.0
+
+    @dataclass
     class StructuralEncoderConfig:
         d_model: int = 512
         num_layers: int = 12
@@ -321,6 +463,9 @@ if __name__ == "__main__":
         dim_feedforward: int = 2048
         dropout: float = 0.1
         abstraction_layer: AbstractionLayerConfig = field(default_factory=AbstractionLayerConfig)
+        slot_attention: SlotAttentionConfig = field(default_factory=SlotAttentionConfig)
+        edge_predictor: EdgePredictorConfig = field(default_factory=EdgePredictorConfig)
+        use_edge_prediction: bool = True
 
     @dataclass
     class PositionEncodingConfig:
@@ -341,6 +486,7 @@ if __name__ == "__main__":
 
     # Create encoder
     encoder = StructuralEncoder(config)
+    encoder.eval()  # CRITICAL: Disable dropout for deterministic testing
 
     # Create dummy shared embedding
     vocab_size = 1000
@@ -354,7 +500,7 @@ if __name__ == "__main__":
     attention_mask = torch.ones(batch_size, seq_len)
 
     # Test without instruction mask
-    structural_slots, structural_scores = encoder(input_ids, attention_mask)
+    structural_slots, structural_scores, edge_weights = encoder(input_ids, attention_mask)
 
     # Check outputs
     expected_shape = (batch_size, config.model.structural_encoder.num_slots, config.model.structural_encoder.d_model)
@@ -366,18 +512,19 @@ if __name__ == "__main__":
 
     print(f"✓ Structural slots shape: {structural_slots.shape}")
     print(f"✓ Number of AbstractionLayer outputs: {len(structural_scores)}")
+    print(f"✓ Edge weights: {edge_weights}")
 
     # Test with instruction mask (data leakage prevention)
     instruction_mask = torch.ones(batch_size, seq_len)
     instruction_mask[:, 10:] = 0  # First 10 tokens are instruction, rest is response
 
-    structural_slots_masked, _ = encoder(input_ids, attention_mask, instruction_mask)
+    structural_slots_masked, _, _ = encoder(input_ids, attention_mask, instruction_mask)
 
     # Verify that changing response tokens doesn't affect output
     input_ids_modified = input_ids.clone()
     input_ids_modified[:, 10:] = torch.randint(0, vocab_size, (batch_size, seq_len - 10))
 
-    structural_slots_modified, _ = encoder(input_ids_modified, attention_mask, instruction_mask)
+    structural_slots_modified, _, _ = encoder(input_ids_modified, attention_mask, instruction_mask)
 
     # Outputs should be identical because response is masked
     diff = (structural_slots_masked - structural_slots_modified).abs().max().item()

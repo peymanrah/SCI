@@ -44,6 +44,14 @@ model:
       num_iterations: 6  # Increased from 3 (NeuroGen empirical finding)
       epsilon: 1e-8
 
+    # Edge Predictor - predicts causal relationships between slots
+    # CRITICAL: This enables the "Causal" in Causal Binding Mechanism
+    use_edge_prediction: true  # Must be true for causal intervention to work
+    edge_predictor:
+      num_heads: 4
+      dropout: 0.1
+      temperature: 1.0  # Lower = sharper edge weights
+
   # Content Encoder - ENABLED
   # Lower dropout - refining pretrained embeddings (already regularized)
   content_encoder:

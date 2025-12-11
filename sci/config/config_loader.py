@@ -40,6 +40,20 @@ class SlotAttentionConfig:
 
 
 @dataclass
+class EdgePredictorConfig:
+    """Configuration for Edge Predictor in Structural Encoder.
+    
+    The Edge Predictor enables the "Causal" in Causal Binding Mechanism
+    by predicting relationships between structural slots.
+    
+    Reference: Based on relational reasoning in Santoro et al. (2017).
+    """
+    num_heads: int = 4
+    dropout: float = 0.1
+    temperature: float = 1.0  # Lower = sharper edge weights
+
+
+@dataclass
 class StructuralEncoderConfig:
     """Configuration for Structural Encoder."""
     enabled: bool = True
@@ -51,6 +65,9 @@ class StructuralEncoderConfig:
     dropout: float = 0.15  # NeuroGen transfer: better OOD regularization
     abstraction_layer: AbstractionLayerConfig = field(default_factory=AbstractionLayerConfig)
     slot_attention: SlotAttentionConfig = field(default_factory=SlotAttentionConfig)
+    # Edge Predictor for causal slot relationships
+    use_edge_prediction: bool = True  # CRITICAL: Enables causal intervention in CBM
+    edge_predictor: EdgePredictorConfig = field(default_factory=EdgePredictorConfig)
 
 
 @dataclass

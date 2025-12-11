@@ -335,13 +335,13 @@ class TestEncoderAttentionLeakage:
         
         with torch.no_grad():
             # Run SE on both
-            slots_1, _ = model.structural_encoder(
+            slots_1, _, _ = model.structural_encoder(
                 input_ids=input_ids_1,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
             )
             
-            slots_2, _ = model.structural_encoder(
+            slots_2, _, _ = model.structural_encoder(
                 input_ids=input_ids_2,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,

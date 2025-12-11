@@ -122,7 +122,7 @@ class TestComponentIntegration:
 
         with torch.no_grad():
             # Process with both encoders
-            structural_slots, _ = structural_encoder(
+            structural_slots, _, _ = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -213,7 +213,7 @@ class TestComponentIntegration:
 
         with torch.no_grad():
             # STEP 1: Structural Encoding
-            structural_slots, structural_scores = structural_encoder(
+            structural_slots, structural_scores, edge_weights = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -226,10 +226,11 @@ class TestComponentIntegration:
                 instruction_mask=instruction_mask,
             )
 
-            # STEP 3: Causal Binding
+            # STEP 3: Causal Binding (now with edge_weights for causal intervention!)
             bound_repr, _ = cbm.bind(
                 structural_slots=structural_slots,
                 content_repr=content_repr,
+                edge_weights=edge_weights,  # Enable causal intervention
             )
 
             # STEP 4: Broadcast
@@ -312,8 +313,8 @@ class TestDataLeakageIntegration:
 
         with torch.no_grad():
             # Encode both inputs
-            structural_1, _ = structural_encoder(input_ids_1, attention_mask, instruction_mask)
-            structural_2, _ = structural_encoder(input_ids_2, attention_mask, instruction_mask)
+            structural_1, _, _ = structural_encoder(input_ids_1, attention_mask, instruction_mask)
+            structural_2, _, _ = structural_encoder(input_ids_2, attention_mask, instruction_mask)
 
             content_1 = content_encoder(input_ids_1, attention_mask, instruction_mask)
             content_2 = content_encoder(input_ids_2, attention_mask, instruction_mask)
@@ -367,7 +368,7 @@ class TestGradientFlow:
         instruction_mask = torch.ones(batch_size, seq_len)
 
         # Forward pass with gradient tracking
-        structural_slots, _ = structural_encoder(input_ids, attention_mask, instruction_mask)
+        structural_slots, _, _ = structural_encoder(input_ids, attention_mask, instruction_mask)
         content_repr = content_encoder(input_ids, attention_mask, instruction_mask)
         bound_repr, _ = cbm.bind(structural_slots, content_repr)
 

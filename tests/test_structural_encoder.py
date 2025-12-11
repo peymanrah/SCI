@@ -97,7 +97,7 @@ class TestStructuralEncoderArchitecture:
         instruction_mask = torch.ones(batch_size, seq_len)
 
         with torch.no_grad():
-            structural_slots, structural_scores = structural_encoder(
+            structural_slots, structural_scores, edge_weights = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -111,6 +111,14 @@ class TestStructuralEncoderArchitecture:
         assert structural_slots.shape == expected_shape, (
             f"Structural slots shape {structural_slots.shape} != {expected_shape}"
         )
+
+        # Check edge_weights shape if edge prediction is enabled
+        if edge_weights is not None:
+            expected_edge_shape = (batch_size, num_slots, num_slots)
+            assert edge_weights.shape == expected_edge_shape, (
+                f"Edge weights shape {edge_weights.shape} != {expected_edge_shape}"
+            )
+            print(f"✓ Edge weights shape correct: {edge_weights.shape}")
 
         print(f"✓ Structural encoder output shape correct: {structural_slots.shape}")
 
@@ -163,7 +171,7 @@ class TestStructuralEncoderArchitecture:
         instruction_mask[:, :instruction_len] = 1
 
         with torch.no_grad():
-            structural_slots, _ = structural_encoder(
+            structural_slots, _, _ = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -174,7 +182,7 @@ class TestStructuralEncoderArchitecture:
         input_ids_2[:, instruction_len:] = torch.randint(0, vocab_size, (batch_size, seq_len - instruction_len))
 
         with torch.no_grad():
-            structural_slots_2, _ = structural_encoder(
+            structural_slots_2, _, _ = structural_encoder(
                 input_ids=input_ids_2,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -233,7 +241,7 @@ class TestStructuralEncoderArchitecture:
         instruction_mask = torch.ones(batch_size, seq_len)
 
         with torch.no_grad():
-            _, structural_scores = structural_encoder(
+            _, structural_scores, _ = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -272,7 +280,7 @@ class TestStructuralEncoderFunctionality:
 
             with torch.no_grad():
                 try:
-                    structural_slots, _ = structural_encoder(
+                    structural_slots, _, _ = structural_encoder(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         instruction_mask=instruction_mask,
@@ -303,7 +311,7 @@ class TestStructuralEncoderFunctionality:
         instruction_mask = torch.ones(batch_size, seq_len)
 
         # Forward pass with gradient tracking
-        structural_slots, _ = structural_encoder(
+        structural_slots, _, _ = structural_encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
             instruction_mask=instruction_mask,
@@ -346,13 +354,13 @@ class TestStructuralEncoderFunctionality:
 
         # Two forward passes with same input
         with torch.no_grad():
-            structural_slots_1, _ = structural_encoder(
+            structural_slots_1, _, _ = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
             )
 
-            structural_slots_2, _ = structural_encoder(
+            structural_slots_2, _, _ = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
@@ -378,7 +386,7 @@ class TestStructuralEncoderFunctionality:
         instruction_mask = torch.ones(batch_size, seq_len)
 
         with torch.no_grad():
-            structural_slots, _ = structural_encoder(
+            structural_slots, _, _ = structural_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 instruction_mask=instruction_mask,
